@@ -248,7 +248,11 @@ test('monitor 服务:内置 deepseek 可被显式配置覆盖(如停用)', async
 
 test('monitor 服务:listCatalog 读取设置→模型 目录(提供方+模型)', async () => {
   const llm = {
-    listConfigurableProviders: () => [{ provider: 'deepseek-official', displayName: 'DeepSeek 官方', settingsNs: 'llm-deepseek', settingsPath: [], declared: true }],
+    listConfigurableProviders: () => [
+      { provider: 'deepseek-official', displayName: 'DeepSeek 官方', settingsNs: 'llm-deepseek', settingsPath: [], declared: true },
+      // dormant:在 configurable 目录声明了、但没有存活路由 → 不应进入提供方选择器。
+      { provider: 'dormant-proxy', displayName: 'Dormant Proxy', settingsNs: 'llm-dormant', settingsPath: [] },
+    ],
     listProviders: () => [
       { id: 'deepseek-official', name: 'DeepSeek 官方' },
       { id: 'deepseek-cn', name: 'DeepSeek CN' },
@@ -266,7 +270,8 @@ test('monitor 服务:listCatalog 读取设置→模型 目录(提供方+模型)'
   }
   const service = createService({ get: name => (name === 'llm' ? llm : undefined) }, { config: defaultConfig(), scheduleWrite: () => {} })
   const catalog = await service.listCatalog()
-  // 提供方只列「已配置」的(declared 目录):deepseek-official;注册路由 deepseek-cn 不出现。
+  // 提供方只列「已配置/可用」的(有存活路由):deepseek-official;
+  // dormant-proxy(无路由)与 deepseek-cn(注册路由但未出现在需过滤的目录)都不该作为提供方出现。
   const ids = catalog.providers.map(p => p.id).sort()
   assert.deepEqual(ids, ['deepseek-official'])
   // 模型:数据源不变(仍按注册路由展开,与模型切换器同源),含 deepseek-cn 的模型。

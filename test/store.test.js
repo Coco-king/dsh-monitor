@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Ledger, applyConfigPatch, defaultConfig } from '../lib/store.js'
+import { Ledger, applyConfigPatch, defaultConfig, localDayKey } from '../lib/store.js'
 
 function tempPath() {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-monitor-test-'))
@@ -21,23 +21,27 @@ function withTemp(fn) {
 
 test('Ledger.account: 日与会话双层聚合', () => withTemp(path => {
   const ledger = new Ledger(defaultConfig(), {}, path)
-  ledger.account({ input: 1000, output: 500, cacheRead: 200, cacheWrite: 100 }, 'deepseek-v4-flash', 's1', Date.parse('2026-08-17T02:00:00Z'))
+  const at1 = Date.parse('2026-08-17T02:00:00Z')
+  ledger.account({ input: 1000, output: 500, cacheRead: 200, cacheWrite: 100 }, 'deepseek-v4-flash', 's1', at1)
   ledger.account({ input: 2000, output: 0, cacheRead: 0, cacheWrite: 0 }, 'deepseek-v4-flash', 's1', Date.parse('2026-08-17T03:00:00Z'))
   ledger.account({ input: 10, output: 10, cacheRead: 0, cacheWrite: 0 }, 'deepseek-v4-pro', 's2', Date.parse('2026-08-17T12:00:00Z'))
 
-  const today = ledger.today()
-  assert.equal(today.input, 3010)
-  assert.equal(today.output, 510)
-  assert.equal(today.cacheRead, 200)
-  assert.equal(today.cacheWrite, 100)
-  assert.equal(today.calls, 3)
-  assert.equal(today.sessions.length, 2)
-  const s1 = today.sessions.find(s => s.id === 's1')
+  // 断言事件日期的记录(不依赖机器当前日期/时区)。
+  const dayKey = localDayKey(at1)
+  const day = ledger.days[dayKey]
+  assert.ok(day !== undefined, 'day record exists for event date')
+  assert.equal(day.input, 3010)
+  assert.equal(day.output, 510)
+  assert.equal(day.cacheRead, 200)
+  assert.equal(day.cacheWrite, 100)
+  assert.equal(day.calls, 3)
+  assert.equal(day.sessions.length, 2)
+  const s1 = day.sessions.find(s => s.id === 's1')
   assert.equal(s1.input, 3000)
   assert.equal(s1.output, 500)
   assert.equal(s1.calls, 2)
   // 成本按各事件时刻档位计费(峰会高、空闲低),必为正。
-  assert.ok(today.cost > 0)
+  assert.ok(day.cost > 0)
 }))
 
 test('Ledger.account: 非法 token 归一化为 0', () => withTemp(path => {
