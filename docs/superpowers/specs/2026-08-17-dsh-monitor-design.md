@@ -78,7 +78,7 @@ Client（浏览器）
 
 - 三桶价格：`{ cacheHit, cacheMiss, output }`（美元 / 1M tokens）；`completeTier` 补齐规则（cacheMiss 缺省取 input、cacheHit 缺省取 cacheMiss、output 缺省 0）。
 - 峰谷：`DEFAULT_PEAK_WINDOWS = [{1,4},{6,10}]`（UTC）、`DEFAULT_PEAK_EFFECTIVE_AT = 2026-08-01T00:00:00Z`、历史分界 `LEGACY_BASE_BOUNDARY = 2026-08-16T16:00:00Z`；`tierFor(atMs)`：生效前按 `legacyBase`，生效后峰段取 `peak`、谷段取 `offPeak`。
-- 默认价表 `DEFAULT_PRICE_TABLE`：**deepseek-v4-flash、deepseek-v4-pro**（三桶 + offPeak/peak/legacyBase），legacy 别名 deepseek-chat / deepseek-reasoner，`default` 回退（flash 数值）。
+- 默认价表 `DEFAULT_PRICE_TABLE`：**deepseek-v4-flash、deepseek-v4-pro**（三桶 + offPeak/peak/legacyBase），`default` 回退（flash 数值）。（2026-08-18 移除旧模型别名 deepseek-chat / deepseek-reasoner。）
 - 官方同步：`OFFICIAL_PRICING_URL = https://api-docs.deepseek.com/quick_start/pricing`，`fetchPricingHtml`（20s 超时 + UA + 短页守卫）→ `parsePricingHtml`（表格解析出 models / effectiveAt / peakWindows）→ merge 进 `config.prices`，`priceSource = 'official'`。
 - 客户端需要同款数学的轻量副本（`priceEntryFor` / `tierFor` / `costOf` / 金额格式化）。
 
