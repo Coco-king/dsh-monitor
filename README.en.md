@@ -5,7 +5,7 @@ Session billing and per-provider usage quota plugin for DeepSeek Harness.
 - **Session cost badge**: wraps `llm/stream`, captures every model call usage and bills precisely against official prices (peak/off-peak tiers + legacy base prices). A chip in the session header shows the session cost in real time with token details; it stays accurate after refresh/reload (event-sourced session projection).
 - **Provider usage panel**: configure one usage query per model provider; click the usage icon left of the model switcher to view the quota of the **current session's provider**.
 - **Three presets**:
-  - **DeepSeek official**: reuses the API key configured in Settings → Models and queries the official account balance (only `api.deepseek.com`; non-official endpoints are refused).
+  - **DeepSeek official** (built-in): reuses the API key configured in Settings → Models and queries the official `GET /user/balance` ([docs](https://api-docs.deepseek.com/zh-cn/api/get-user-balance); only `api.deepseek.com`, non-official endpoints refused). **No configuration needed** — when the current session's provider is `deepseek-official`, the balance shows automatically; add a provider with the same id only to override the refresh interval.
   - **OpenCode**: queries the OpenCode Go plan quota — **rolling 5 hours / weekly / monthly** usage percent and reset times (`opencode.ai/zen/go/v1/usage`).
   - **Custom**: any HTTP usage endpoint — URL + headers (with `{apiKey}` placeholder) + JSON paths, displayed item by item (percent / number / money / text, optional max and reset time).
 - **Official price sync**: one-click sync of the price table and peak windows from the DeepSeek official pricing page; deepseek-v4-flash / deepseek-v4-pro are bundled as defaults.
@@ -22,7 +22,7 @@ The package declares `dsh.bundle.patch`, so it joins the web profile's bundle la
 
 ## Usage
 
-1. **Configure providers**: Settings → Usage → Provider usage config → Add provider. The provider ID must match the model switcher (e.g. `deepseek`, `opencode`; the session model directory is authoritative). Pick a preset and fill the fields, then save.
+1. **Configure providers**: Settings → Usage → Provider usage config → Add provider. The provider ID must match the model switcher (e.g. `deepseek-official`, `opencode`; the session model directory is authoritative). Pick a preset and fill the fields, then save. **DeepSeek official is built-in and needs no configuration** — only add a provider for OpenCode, Custom, or to override the DeepSeek refresh interval.
 2. **View usage**: click the gauge icon left of the model switcher in the composer. The panel shows the current session provider's quota: provider name + preset badge in the header, refresh icon on the top right.
 3. **Session cost**: the session header shows the session cost chip; hover for input/cache/output token details.
 4. **Prices**: Settings → Usage → Billing prices — edit prices, add models, or sync from the official docs.

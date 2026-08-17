@@ -221,3 +221,27 @@ test('monitor 服务:updateConfig 非法补丁拒绝且状态不变', async () =
   const ok = await service.updateConfig({ providers: { ops: { enabled: true, preset: 'opencode', refreshMinutes: 5, apiKey: '' } } })
   assert.deepEqual(Object.keys(ok.providers), ['ops'])
 })
+
+test('monitor 服务:deepseek-official 内置自动(无需配置也直接查余额)', async () => {
+  mockFetchJson(200, {
+    balance_infos: [{ currency: 'CNY', total_balance: '66', granted_balance: '10', topped_up_balance: '56' }],
+  })
+  try {
+    // providers 为空:deepseek-official 不配置也应有内置行为。
+    const service = createService(makeCtx(), { config: configWithProviders({}), scheduleWrite: () => {} })
+    const usage = await service.getProviderUsage('deepseek-official')
+    assert.equal(usage.status, 'ok')
+    assert.equal(usage.preset, 'deepseek')
+    assert.equal(usage.items.length, 3)
+    assert.equal(usage.items[0].value, 66)
+  } finally {
+    mock.restoreAll()
+  }
+})
+
+test('monitor 服务:内置 deepseek 可被显式配置覆盖(如停用)', async () => {
+  const providers = { 'deepseek-official': { enabled: false, preset: 'deepseek', refreshMinutes: 5, apiKey: '' } }
+  const service = createService(makeCtx(), { config: configWithProviders(providers), scheduleWrite: () => {} })
+  const usage = await service.getProviderUsage('deepseek-official')
+  assert.equal(usage.status, 'off')
+})

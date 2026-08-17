@@ -5,7 +5,7 @@ DeepSeek Harness 会话计费 + 通用提供方用量查询插件。
 - **会话费用角标**：包裹 `llm/stream` 捕获每次模型调用 usage，按官方价格（含峰谷计价与历史基础价）精确计费，在会话头部实时显示本会话费用与 token 明细；刷新/重载后依然准确（会话投影事件源回放）。
 - **提供方用量面板**：按模型提供方配置用量查询（每个提供方一条配置），在模型切换器左侧的用量图标处点击查看**当前会话所用提供方**的额度。
 - **三种预设**：
-  - **DeepSeek 官方**：复用 设置→模型 中配置的 API Key，查询官方账户余额（仅发往 `api.deepseek.com`，非官方端点拒绝）。
+  - **DeepSeek 官方**（内置）：复用 设置→模型 中配置的 API Key，直查官方 `GET /user/balance`（[文档](https://api-docs.deepseek.com/zh-cn/api/get-user-balance)，仅发往 `api.deepseek.com`，非官方端点拒绝）。**无需任何配置**——当前会话提供方为 `deepseek-official` 时自动显示余额；如想调整刷新间隔可在设置页添加同名 provider 覆盖。
   - **OpenCode**：查询 OpenCode Go 套餐额度——**滚动 5 小时 / 本周 / 本月** 用量百分比与重置时间（`opencode.ai/zen/go/v1/usage`）。
   - **自定义**：任意 HTTP 用量接口——URL + 请求头（支持 `{apiKey}` 占位）+ JSON 取值路径，逐条展示（percent / number / money / text，可带上限与重置时间）。
 - **官方价格同步**：一键从 DeepSeek 官方定价页同步价格表与峰谷窗口；默认预置 deepseek-v4-flash / deepseek-v4-pro。
@@ -22,7 +22,7 @@ dsh plugin --profile web add <本仓库路径>
 
 ## 使用
 
-1. **配置提供方**：设置 → 用量 → 提供方用量配置 → 添加提供方。提供方 ID 需与模型切换器中的提供方一致（如 `deepseek`、`opencode`，具体以当前会话模型目录为准）。选择预设并填写字段后保存。
+1. **配置提供方**：设置 → 用量 → 提供方用量配置 → 添加提供方。提供方 ID 需与模型切换器中的提供方一致（如 `deepseek-official`、`opencode`，具体以当前会话模型目录为准）。选择预设并填写字段后保存。**DeepSeek 官方为内置，无需配置**——只有 OpenCode、自定义或想自定义 DeepSeek 刷新间隔时才需要添加。
 2. **查看用量**：输入栏右侧（模型切换器左侧）点击用量图标，面板展示当前会话提供方的额度；头部显示提供方名字与预设徽标，右上角刷新图标强制刷新。
 3. **会话费用**：会话头部显示本会话费用 chip，悬停查看输入/缓存/输出 token 明细。
 4. **价格**：设置 → 用量 → 计费价格，可手动编辑价格、新增模型、或从官方文档同步。
@@ -46,7 +46,7 @@ dsh plugin --profile web add <本仓库路径>
     "default": { "cacheHit": 0.007, "cacheMiss": 0.22, "output": 0.66 }
   },
   "providers": {
-    "deepseek": { "enabled": true, "preset": "deepseek", "refreshMinutes": 5, "apiKey": "" },
+    "deepseek-official": { "enabled": true, "preset": "deepseek", "refreshMinutes": 5, "apiKey": "" }, // 可选(覆盖内置默认)
     "opencode": { "enabled": true, "preset": "opencode", "refreshMinutes": 15, "apiKey": "" },
     "custom1": {
       "enabled": true, "preset": "custom", "refreshMinutes": 10, "apiKey": "k",
