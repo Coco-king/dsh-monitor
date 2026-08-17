@@ -22,10 +22,10 @@ dsh plugin --profile web add <本仓库路径>
 
 ## 使用
 
-1. **配置提供方**：设置 → 用量 → 提供方用量配置 → 添加提供方。**提供方 ID 用下拉选择器**——候选 = 设置→模型 已配置的提供方 + 本插件已配置的提供方（含自定义）。选择预设并填写字段后保存。**DeepSeek 官方为内置，无需配置**——只有 OpenCode、自定义或想自定义 DeepSeek 刷新间隔时才需要添加。
+1. **配置提供方用量查询**：设置 → 模型，在目标提供方条目的**编辑按钮左侧**点击用量图标（悬浮提示「配置用量查询」），在弹窗里选择查询方式（**DeepSeek 官方余额 / OpenCode Go 套餐 / 自定义 HTTP**）并填写字段后保存——**保存会覆盖该提供方此前的绑定配置**；弹窗底部可「解除绑定」。**DeepSeek 官方为内置，不绑定也可用**——绑定主要用于 OpenCode、自定义或自定义 DeepSeek 刷新间隔。
 2. **查看用量**：输入栏右侧（模型切换器左侧）点击用量图标，面板展示当前会话提供方的额度；头部显示提供方名字与预设徽标，右上角刷新图标强制刷新。
 3. **会话费用**：会话头部显示本会话费用 chip，悬停查看输入/缓存/输出 token 明细。
-4. **价格**：设置 → 用量 → 计费价格，可手动编辑价格、**用按提供方分组的下拉选择器从 设置→模型 新增模型**、或从官方文档同步。
+4. **价格**：设置 → 计费，配置模型价格（手动编辑 / 从 设置→模型 新增模型 / 从官方文档同步）。
 
 ## 配置模型
 
@@ -104,8 +104,9 @@ npm run dev:client                 # 监听 lib/client-src/ 增量重建(--watch
   托管模块名,产物必须为单文件,勿手改);源码在 `lib/client-src/`:`main.js`
   (入口/接线)、`styles.js`(样式+注入)、`i18n.js`(文案)、`codecs.js`(线路
   校验+Typert 贡献清单)、`format.js`(计价/显示助手)、`panel.js`(用量图标/
-  面板/会话角标)、`settings.js`(设置→用量 页);构建脚本 `scripts/build-client.mjs`
-  负责打包、按产物注入 BUILD_TAG 并做加载自检。
+  面板/会话角标)、`settings.js`(计费价格页 + 绑定表单 ProviderForm)、
+  `binding.js`(设置→模型 每行「配置用量查询」图标的 DOM 注入 + 绑定弹窗);
+  构建脚本 `scripts/build-client.mjs` 负责打包、按产物注入 BUILD_TAG 并做加载自检。
 - 开发迭代:改客户端源码后 `npm run build:client`(或 `npm run dev:client` watch),
   再重新 `dsh plugin --profile web add <本仓库路径>`;若在 DeepSeek Harness 仓库内跑
   `pnpm run dev:web`,客户端改动可经 client HMR 热更新。

@@ -38,7 +38,7 @@ function bundleOptions(plugins) {
     format: 'cjs',
     platform: 'browser',
     target: ['es2020'],
-    external: ['react', '@deepseek-ai/dsh-client-ui-primitives'],
+    external: ['react', 'react-dom', 'react-dom/client', '@deepseek-ai/dsh-client-ui-primitives'],
     define: { __DSH_BUILD_TAG__: JSON.stringify(TAG_SENTINEL) },
     banner: { js: LOAD_BANNER },
     footer: { js: LOAD_FOOTER },
@@ -87,7 +87,7 @@ function smokeCheck(code, tag) {
   if (typeof record.factory !== 'function') throw new Error('build: factory missing')
   const moduleStub = new Proxy({}, { get: (target, key) => (key === Symbol.toStringTag ? 'Module' : fn) })
   const moduleExports = record.factory(spec => {
-    if (spec === 'react' || spec === '@deepseek-ai/dsh-client-ui-primitives') return moduleStub
+    if (spec.startsWith('react') || spec === '@deepseek-ai/dsh-client-ui-primitives') return moduleStub
     throw new Error(`build: unexpected external require "${spec}"`)
   })
   if (Array.isArray(moduleExports.inject) !== true || moduleExports.inject.join(',') !== 'remote') {
