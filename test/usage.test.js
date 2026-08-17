@@ -266,13 +266,15 @@ test('monitor 服务:listCatalog 读取设置→模型 目录(提供方+模型)'
   }
   const service = createService({ get: name => (name === 'llm' ? llm : undefined) }, { config: defaultConfig(), scheduleWrite: () => {} })
   const catalog = await service.listCatalog()
-  // 提供方:configurable(deepseek-official)+ 注册路由去重;含 deepseek-cn。
+  // 提供方只列「已配置」的(declared 目录):deepseek-official;注册路由 deepseek-cn 不出现。
   const ids = catalog.providers.map(p => p.id).sort()
-  assert.deepEqual(ids, ['deepseek-cn', 'deepseek-official'])
-  // 模型:按提供方展开。
+  assert.deepEqual(ids, ['deepseek-official'])
+  // 模型:数据源不变(仍按注册路由展开,与模型切换器同源),含 deepseek-cn 的模型。
   assert.equal(catalog.models.length, 3)
   const flash = catalog.models.find(m => m.id === 'deepseek-v4-flash')
   assert.equal(flash.provider, 'deepseek-official')
+  const cn = catalog.models.find(m => m.provider === 'deepseek-cn')
+  assert.equal(cn.id, 'deepseek-v4-pro')
 })
 
 test('monitor 服务:listCatalog 在无 llm 服务时返回空目录', async () => {
