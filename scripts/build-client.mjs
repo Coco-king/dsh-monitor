@@ -39,6 +39,8 @@ function bundleOptions(plugins) {
     platform: 'browser',
     target: ['es2020'],
     external: ['react', 'react-dom', 'react-dom/client', '@deepseek-ai/dsh-client-ui-primitives'],
+    // 内联 PNG 资源:require('./assets/*.png') → data URI(单文件 bundle)。
+    loader: { '.png': 'dataurl' },
     define: { __DSH_BUILD_TAG__: JSON.stringify(TAG_SENTINEL) },
     banner: { js: LOAD_BANNER },
     footer: { js: LOAD_FOOTER },
