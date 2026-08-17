@@ -26,15 +26,23 @@
   },
   "files": [
     "lib/index.js",
+    "lib/messages.js",
+    "lib/projection.js",
+    "lib/queries.js",
+    "lib/monitor.js",
     "lib/store.js",
     "lib/pricing.js",
     "lib/typert.host.js",
     "lib/client.js",
+    "lib/client-src",
+    "scripts",
     "cordis.patch.yml",
     "README.md"
   ],
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "build:client": "node scripts/build-client.mjs",
+    "dev:client": "node scripts/build-client.mjs --watch"
   },
   "dependencies": {
     "@deepseek-ai/dsh-credentials": "^0.1.0-rc.6",
@@ -53,5 +61,8 @@
     "cost",
     "opencode"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
 }

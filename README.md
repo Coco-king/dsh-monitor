@@ -87,10 +87,30 @@ dsh plugin --profile web add <本仓库路径>
 
 ```sh
 npm install --cache ./.npm-cache   # 沙箱环境缓存须落在工作区内
-npm test                           # node --test,33 个用例
+npm test                           # node --test,37 个用例
+npm run build:client               # 客户端打包:lib/client-src/ → lib/client.js(单文件 bundle)
+npm run dev:client                 # 监听 lib/client-src/ 增量重建(--watch)
 ```
 
-结构：`lib/index.js`(Host 主体)、`lib/store.js`(账本+配置校验)、`lib/pricing.js`(价格/峰谷/官方解析)、`lib/typert.host.js`(Typert 清单)、`lib/client.js`(浏览器半边)。计费与价格数学移植自 [dsh-cost-meter](https://github.com/Han-1413141/dsh-cost-meter)(MIT)。
+结构:
+
+- 主机侧:`lib/index.js`(插件入口 + llm/stream 计费包裹,re-export 公开 API)、
+  `lib/messages.js`(服务端文案)、`lib/projection.js`(costUsage 会话投影)、
+  `lib/queries.js`(DeepSeek 余额 / OpenCode 套餐 / 自定义 HTTP 三类查询)、
+  `lib/monitor.js`(monitor 服务:缓存/listCatalog/官方价格同步)、
+  `lib/store.js`(账本+配置校验)、`lib/pricing.js`(价格/峰谷/官方解析)、
+  `lib/typert.host.js`(Typert 清单)。
+- 浏览器侧:`lib/client.js` 是 **esbuild 构建产物**(DSH 的 module loader 只解析
+  托管模块名,产物必须为单文件,勿手改);源码在 `lib/client-src/`:`main.js`
+  (入口/接线)、`styles.js`(样式+注入)、`i18n.js`(文案)、`codecs.js`(线路
+  校验+Typert 贡献清单)、`format.js`(计价/显示助手)、`panel.js`(用量图标/
+  面板/会话角标)、`settings.js`(设置→用量 页);构建脚本 `scripts/build-client.mjs`
+  负责打包、按产物注入 BUILD_TAG 并做加载自检。
+- 开发迭代:改客户端源码后 `npm run build:client`(或 `npm run dev:client` watch),
+  再重新 `dsh plugin --profile web add <本仓库路径>`;若在 DeepSeek Harness 仓库内跑
+  `pnpm run dev:web`,客户端改动可经 client HMR 热更新。
+
+计费与价格数学移植自 [dsh-cost-meter](https://github.com/Han-1413141/dsh-cost-meter)(MIT)。
 
 ## License
 

@@ -87,10 +87,18 @@ Custom item fields:
 
 ```sh
 npm install --cache ./.npm-cache   # sandboxed environments must keep the cache inside the workspace
-npm test                           # node --test, 33 cases
+npm test                           # node --test, 37 cases
+npm run build:client               # bundle lib/client-src/ → lib/client.js (single-file bundle)
+npm run dev:client                 # rebuild on change (--watch)
 ```
 
-Layout: `lib/index.js` (host), `lib/store.js` (ledger + config validation), `lib/pricing.js` (prices/peak/official parse), `lib/typert.host.js` (Typert manifest), `lib/client.js` (browser half). Billing and pricing math are ported from [dsh-cost-meter](https://github.com/Han-1413141/dsh-cost-meter) (MIT).
+Layout:
+
+- Host: `lib/index.js` (plugin entry + `llm/stream` billing wrapper, re-exports the public API), `lib/messages.js` (server copy), `lib/projection.js` (costUsage session projection), `lib/queries.js` (DeepSeek balance / OpenCode plan / custom HTTP queries), `lib/monitor.js` (monitor service: cache / listCatalog / official price sync), `lib/store.js` (ledger + config validation), `lib/pricing.js` (prices/peak/official parse), `lib/typert.host.js` (Typert manifest).
+- Browser: `lib/client.js` is an **esbuild artifact** (DSH's module loader only resolves host-managed module names, so the shipped bundle must be one file; do not edit it by hand). Source lives in `lib/client-src/`: `main.js` (entry/wiring), `styles.js`, `i18n.js`, `codecs.js`, `format.js`, `panel.js` (usage icon/panel/cost badge), `settings.js` (Settings → Usage page); `scripts/build-client.mjs` bundles it, injects a content-derived BUILD_TAG, and smoke-checks the result.
+- Iterating: after changing client sources run `npm run build:client` (or `npm run dev:client` watch) and re-`dsh plugin --profile web add <repo>`; with `pnpm run dev:web` running in the DSH repo, client changes can hot-reload via client HMR.
+
+Billing and pricing math are ported from [dsh-cost-meter](https://github.com/Han-1413141/dsh-cost-meter) (MIT).
 
 ## License
 
