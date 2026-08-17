@@ -1,0 +1,154 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { Ledger, applyConfigPatch, defaultConfig } from '../lib/store.js'
+
+function tempPath() {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-monitor-test-'))
+  return { dir, path: join(dir, 'ledger.json') }
+}
+
+function withTemp(fn) {
+  const { dir, path } = tempPath()
+  try {
+    return fn(path)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+test('Ledger.account: 日与会话双层聚合', () => withTemp(path => {
+  const ledger = new Ledger(defaultConfig(), {}, path)
+  ledger.account({ input: 1000, output: 500, cacheRead: 200, cacheWrite: 100 }, 'deepseek-v4-flash', 's1', Date.parse('2026-08-17T02:00:00Z'))
+  ledger.account({ input: 2000, output: 0, cacheRead: 0, cacheWrite: 0 }, 'deepseek-v4-flash', 's1', Date.parse('2026-08-17T03:00:00Z'))
+  ledger.account({ input: 10, output: 10, cacheRead: 0, cacheWrite: 0 }, 'deepseek-v4-pro', 's2', Date.parse('2026-08-17T12:00:00Z'))
+
+  const today = ledger.today()
+  assert.equal(today.input, 3010)
+  assert.equal(today.output, 510)
+  assert.equal(today.cacheRead, 200)
+  assert.equal(today.cacheWrite, 100)
+  assert.equal(today.calls, 3)
+  assert.equal(today.sessions.length, 2)
+  const s1 = today.sessions.find(s => s.id === 's1')
+  assert.equal(s1.input, 3000)
+  assert.equal(s1.output, 500)
+  assert.equal(s1.calls, 2)
+  // 成本按各事件时刻档位计费(峰会高、空闲低),必为正。
+  assert.ok(today.cost > 0)
+}))
+
+test('Ledger.account: 非法 token 归一化为 0', () => withTemp(path => {
+  const ledger = new Ledger(defaultConfig(), {}, path)
+  ledger.account({ input: -5, output: Number.NaN, cacheRead: 'x', cacheWrite: undefined }, 'deepseek-v4-flash', 's1', Date.now())
+  const today = ledger.today()
+  assert.equal(today.input, 0)
+  assert.equal(today.output, 0)
+  assert.equal(today.cacheRead, 0)
+  assert.equal(today.calls, 1)
+  assert.equal(today.cost, 0)
+}))
+
+test('Ledger.sumRange / sumDays', () => withTemp(path => {
+  const ledger = new Ledger(defaultConfig(), {
+    '2026-08-10': { date: '2026-08-10', input: 1, output: 0, cacheRead: 0, cacheWrite: 0, calls: 1, cost: 0, sessions: [] },
+    '2026-08-15': { date: '2026-08-15', input: 2, output: 0, cacheRead: 0, cacheWrite: 0, calls: 1, cost: 0, sessions: [] },
+    '2026-08-20': { date: '2026-08-20', input: 4, output: 0, cacheRead: 0, cacheWrite: 0, calls: 1, cost: 0, sessions: [] },
+  }, path)
+  assert.equal(ledger.sumRange('2026-08-10', '2026-08-15').input, 3)
+  assert.equal(ledger.sumDays('2026-08').input, 7)
+  assert.equal(ledger.sumDays(undefined).input, 7)
+}))
+
+test('Ledger.prune: 保留最近 historyDays 天', () => withTemp(path => {
+  const ledger = new Ledger(defaultConfig(), {}, path)
+  ledger.config.historyDays = 7
+  for (let i = 0; i < 30; i += 1) {
+    const date = `2026-07-${String(i + 1).padStart(2, '0')}`
+    ledger.days[date] = { date, input: 1, output: 0, cacheRead: 0, cacheWrite: 0, calls: 1, cost: 0, sessions: [] }
+  }
+  ledger.prune()
+  assert.equal(Object.keys(ledger.days).length, 7)
+  assert.equal(Object.keys(ledger.days).sort()[0], '2026-07-24')
+}))
+
+test('Ledger 原子写落盘往返', () => withTemp(path => {
+  const ledger = new Ledger(defaultConfig(), {}, path)
+  ledger.account({ input: 100, output: 0, cacheRead: 0, cacheWrite: 0 }, 'deepseek-v4-flash', 's1', Date.parse('2026-08-17T00:00:00Z'))
+  ledger.pendingWrite = true
+  ledger.flush()
+  const parsed = JSON.parse(readFileSync(path, 'utf8'))
+  assert.equal(parsed.version, 1)
+  assert.equal(parsed.days['2026-08-17'].input, 100)
+  assert.equal(parsed.config.locale, 'auto')
+  assert.ok(parsed.config.providers !== undefined)
+  // 新键用默认值补齐。
+  const reopened = new Ledger(defaultConfig(), {}, path)
+  reopened.config = Object.assign({}, defaultConfig(), parsed.config)
+  assert.equal(reopened.config.prices.models['deepseek-v4-flash'].cacheMiss, 0.22)
+}))
+
+test('applyConfigPatch: 追加 deepseek / opencode / custom 提供方配置', () => {
+  const current = defaultConfig()
+  const { config, errors } = applyConfigPatch(current, {
+    providers: {
+      deepseek: { enabled: true, preset: 'deepseek', refreshMinutes: 5, apiKey: '' },
+      ops: {
+        enabled: true, preset: 'opencode', refreshMinutes: 15, apiKey: '',
+      },
+      custom1: {
+        enabled: true, preset: 'custom', refreshMinutes: 10, apiKey: 'k',
+        custom: {
+          url: 'https://example.com/usage',
+          headers: { Authorization: 'Bearer {apiKey}' },
+          items: [
+            { key: 'weekly', label: '本周', kind: 'percent', path: 'usage.weekly.percent', maxPath: null, resetsAtPath: 'usage.weekly.resetsAt' },
+            { key: 'tokens', label: 'Tokens', kind: 'number', path: 'usage.tokens', maxPath: 1_000_000, resetsAtPath: null },
+          ],
+        },
+      },
+    },
+  })
+  assert.deepEqual(errors, [])
+  assert.equal(config.providers.custom1.custom.items.length, 2)
+  assert.equal(config.providers.custom1.custom.headers.Authorization, 'Bearer {apiKey}')
+})
+
+test('applyConfigPatch: 非法补丁整体拒绝', () => {
+  const current = defaultConfig()
+  // 未知键
+  assert.ok(applyConfigPatch(current, { nope: 1 }).errors.length > 0)
+  // custom 预设缺 url
+  assert.ok(applyConfigPatch(current, {
+    providers: { x: { enabled: true, preset: 'custom', refreshMinutes: 5, apiKey: '', custom: { url: '', headers: {}, items: [{ key: 'a', label: 'A', kind: 'number', path: 'a', maxPath: null, resetsAtPath: null }] } } },
+  }).errors.length > 0)
+  // custom items 缺失
+  assert.ok(applyConfigPatch(current, {
+    providers: { x: { enabled: true, preset: 'custom', refreshMinutes: 5, apiKey: '', custom: { url: 'https://x', headers: {}, items: [] } } },
+  }).errors.length > 0)
+  // 非法 preset
+  assert.ok(applyConfigPatch(current, {
+    providers: { x: { enabled: true, preset: 'flyio', refreshMinutes: 5, apiKey: '' } },
+  }).errors.length > 0)
+  // 非对象补丁
+  assert.ok(applyConfigPatch(current, 42).errors.length > 0)
+})
+
+test('applyConfigPatch: providers 整表替换语义(删除即消失)', () => {
+  const current = defaultConfig()
+  current.providers = { a: { enabled: true, preset: 'deepseek', refreshMinutes: 5, apiKey: '' } }
+  const { config, errors } = applyConfigPatch(current, { providers: { b: { enabled: true, preset: 'opencode', refreshMinutes: 5, apiKey: '' } } })
+  assert.deepEqual(errors, [])
+  assert.deepEqual(Object.keys(config.providers), ['b'])
+})
+
+test('applyConfigPatch: prices.models 整表替换语义', () => {
+  const current = defaultConfig()
+  const { config, errors } = applyConfigPatch(current, {
+    prices: { models: { 'deepseek-v4-flash': { cacheHit: 0.1, cacheMiss: 0.2, output: 0.3 } } },
+  })
+  assert.deepEqual(errors, [])
+  assert.deepEqual(Object.keys(config.prices.models), ['deepseek-v4-flash'])
+})

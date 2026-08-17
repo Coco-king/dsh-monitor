@@ -1,0 +1,107 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import {
+  DEFAULT_PRICE_TABLE,
+  DEFAULT_PEAK_WINDOWS,
+  DEFAULT_PEAK_EFFECTIVE_AT,
+  LEGACY_BASE_BOUNDARY,
+  costOf,
+  isPeakHour,
+  normalizePrice,
+  parsePricingHtml,
+  priceEntryFor,
+  tierFor,
+} from '../lib/pricing.js'
+
+const FLASH = DEFAULT_PRICE_TABLE.models['deepseek-v4-flash']
+const PRO = DEFAULT_PRICE_TABLE.models['deepseek-v4-pro']
+const peak = () => ({
+  enabled: true,
+  effectiveAtMs: Date.parse(DEFAULT_PEAK_EFFECTIVE_AT),
+  windows: DEFAULT_PEAK_WINDOWS,
+})
+
+test('tierFor: 峰谷生效前按 legacyBase(历史正确)', () => {
+  const atMs = Date.parse('2026-08-01T12:00:00Z')
+  assert.ok(atMs < Date.parse(LEGACY_BASE_BOUNDARY))
+  const tier = tierFor(FLASH, atMs, peak())
+  assert.deepEqual({ cacheHit: tier.cacheHit, cacheMiss: tier.cacheMiss, output: tier.output }, FLASH.legacyBase)
+})
+
+test('tierFor: 生效后峰段取 peak,谷段取 offPeak', () => {
+  const inPeak = tierFor(FLASH, Date.parse('2026-08-17T02:00:00Z'), peak()) // UTC 02 → 窗 [1,4)
+  assert.deepEqual({ cacheHit: inPeak.cacheHit, cacheMiss: inPeak.cacheMiss, output: inPeak.output }, FLASH.peak)
+  const offPeak = tierFor(FLASH, Date.parse('2026-08-17T12:00:00Z'), peak()) // UTC 12 → 窗外
+  assert.deepEqual({ cacheHit: offPeak.cacheHit, cacheMiss: offPeak.cacheMiss, output: offPeak.output }, FLASH.offPeak)
+})
+
+test('tierFor: 禁用峰谷时恒取基础档', () => {
+  const tier = tierFor(FLASH, Date.parse('2026-08-17T02:00:00Z'), { enabled: false })
+  assert.deepEqual({ cacheHit: tier.cacheHit, cacheMiss: tier.cacheMiss, output: tier.output },
+    { cacheHit: FLASH.cacheHit, cacheMiss: FLASH.cacheMiss, output: FLASH.output })
+})
+
+test('isPeakHour: 窗口边界半开', () => {
+  const atMs = ts => Date.parse(ts)
+  assert.equal(isPeakHour(atMs('2026-08-17T01:00:00Z'), 0, DEFAULT_PEAK_WINDOWS), true)
+  assert.equal(isPeakHour(atMs('2026-08-17T04:00:00Z'), 0, DEFAULT_PEAK_WINDOWS), false)
+  assert.equal(isPeakHour(atMs('2026-08-17T06:00:00Z'), 0, DEFAULT_PEAK_WINDOWS), true)
+  assert.equal(isPeakHour(atMs('2026-08-17T10:00:00Z'), 0, DEFAULT_PEAK_WINDOWS), false)
+  assert.equal(isPeakHour(atMs('2026-08-17T02:00:00Z'), Date.now() + 1e12, DEFAULT_PEAK_WINDOWS), false) // 生效前
+})
+
+test('costOf: 1M 输入 + 500K 输出 + 300K 缓存命中,基础档', () => {
+  const cost = costOf({ input: 1_000_000, output: 500_000, cacheRead: 200_000, cacheWrite: 100_000 },
+    FLASH, Date.parse('2026-08-17T12:00:00Z'), { enabled: false })
+  // (1e6*0.22 + 0.5e6*0.66 + 0.3e6*0.007)/1e6
+  assert.ok(Math.abs(cost - 0.5521) < 1e-9)
+})
+
+test('normalizePrice: 两档简写补齐三桶', () => {
+  assert.deepEqual(normalizePrice({ input: 1, output: 2 }), { cacheHit: 1, cacheMiss: 1, output: 2 })
+  assert.deepEqual(normalizePrice({ cacheHit: 0.5, cacheMiss: 1, output: 2 }), { cacheHit: 0.5, cacheMiss: 1, output: 2 })
+  assert.equal(normalizePrice(null), null)
+  assert.equal(normalizePrice({}), null)
+})
+
+test('priceEntryFor: 未知模型回退 default', () => {
+  assert.equal(priceEntryFor('deepseek-v4-flash', DEFAULT_PRICE_TABLE), FLASH)
+  assert.deepEqual(priceEntryFor('unknown-model', DEFAULT_PRICE_TABLE), DEFAULT_PRICE_TABLE.default)
+})
+
+const FIXTURE_HTML = `
+<table>
+  <tr><td>MODEL</td><td>deepseek-v4-flash</td><td>deepseek-v4-pro</td></tr>
+  <tr><td>1M INPUT TOKENS (CACHE HIT)</td><td>OFF-PEAK</td><td>$0.007</td><td>$0.022</td></tr>
+  <tr><td>PEAK</td><td>$0.014</td><td>$0.044</td></tr>
+  <tr><td>1M INPUT TOKENS (CACHE MISS)</td><td>OFF-PEAK</td><td>$0.22</td><td>$0.66</td></tr>
+  <tr><td>PEAK</td><td>$0.44</td><td>$1.32</td></tr>
+  <tr><td>1M OUTPUT TOKENS</td><td>OFF-PEAK</td><td>$0.66</td><td>$1.98</td></tr>
+  <tr><td>PEAK</td><td>$1.32</td><td>$3.96</td></tr>
+</table>
+<p>Peak hours are 01:00-04:00 and 06:00-10:00 UTC.</p>
+`
+
+test('parsePricingHtml: 官方页 fixture 解析出两模型与峰谷档', () => {
+  const parsed = parsePricingHtml(FIXTURE_HTML)
+  assert.deepEqual(Object.keys(parsed.models).sort(), ['deepseek-v4-flash', 'deepseek-v4-pro'])
+  const flash = parsed.models['deepseek-v4-flash']
+  assert.equal(flash.cacheMiss, 0.22)
+  assert.equal(flash.output, 0.66)
+  assert.deepEqual(flash.peak, { cacheHit: 0.014, cacheMiss: 0.44, output: 1.32 })
+  assert.deepEqual(flash.offPeak, { cacheHit: 0.007, cacheMiss: 0.22, output: 0.66 })
+  // legacyBase 附带(历史基础价)。
+  assert.deepEqual(flash.legacyBase, { cacheHit: 0.0028, cacheMiss: 0.14, output: 0.28 })
+  assert.deepEqual(parsed.peakWindows, [{ start: 1, end: 4 }, { start: 6, end: 10 }])
+  assert.equal(parsed.effectiveAt, null)
+})
+
+test('parsePricingHtml: 不可解析页面抛 ERR_NO_MODELS', () => {
+  assert.throws(() => parsePricingHtml('<html>nothing here</html>'), error => error.code === 'ERR_NO_MODELS')
+})
+
+test('默认价表包含 deepseek-v4-flash / deepseek-v4-pro', () => {
+  assert.ok(FLASH !== undefined)
+  assert.ok(PRO !== undefined)
+  assert.ok(DEFAULT_PRICE_TABLE.default !== undefined)
+})
