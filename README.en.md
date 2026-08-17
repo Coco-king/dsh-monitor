@@ -22,10 +22,10 @@ The package declares `dsh.bundle.patch`, so it joins the web profile's bundle la
 
 ## Usage
 
-1. **Configure providers**: Settings → Usage → Provider usage config → Add provider. **The provider ID is a picker** — candidates are the providers configured in Settings → Models plus the providers you already configured here (including custom ones); custom ids can still be typed. Pick a preset and fill the fields, then save. **DeepSeek official is built-in and needs no configuration** — only add a provider for OpenCode, Custom, or to override the DeepSeek refresh interval.
+1. **Configure providers**: Settings → Usage → Provider usage config → Add provider. **The provider ID is a dropdown** — candidates are the providers configured in Settings → Models plus the providers you already configured here (including custom ones). Pick a preset and fill the fields, then save. **DeepSeek official is built-in and needs no configuration** — only add a provider for OpenCode, Custom, or to override the DeepSeek refresh interval.
 2. **View usage**: click the gauge icon left of the model switcher in the composer. The panel shows the current session provider's quota: provider name + preset badge in the header, refresh icon on the top right.
 3. **Session cost**: the session header shows the session cost chip; hover for input/cache/output token details.
-4. **Prices**: Settings → Usage → Billing prices — edit prices, **add models via a provider-grouped dropdown of the models configured in Settings → Models** (manual IDs also allowed), or sync from the official docs.
+4. **Prices**: Settings → Usage → Billing prices — edit prices, **add models via a provider-grouped dropdown of the models configured in Settings → Models**, or sync from the official docs.
 
 ## Config model
 
