@@ -245,3 +245,38 @@ test('monitor 服务:内置 deepseek 可被显式配置覆盖(如停用)', async
   const usage = await service.getProviderUsage('deepseek-official')
   assert.equal(usage.status, 'off')
 })
+
+test('monitor 服务:listCatalog 读取设置→模型 目录(提供方+模型)', async () => {
+  const llm = {
+    listConfigurableProviders: () => [{ provider: 'deepseek-official', displayName: 'DeepSeek 官方', settingsNs: 'llm-deepseek', settingsPath: [], declared: true }],
+    listProviders: () => [
+      { id: 'deepseek-official', name: 'DeepSeek 官方' },
+      { id: 'deepseek-cn', name: 'DeepSeek CN' },
+    ],
+    listModels: async provider => {
+      if (provider === 'deepseek-official') {
+        return [
+          { id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash' },
+          { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro' },
+        ]
+      }
+      if (provider === 'deepseek-cn') return [{ id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro CN' }]
+      return []
+    },
+  }
+  const service = createService({ get: name => (name === 'llm' ? llm : undefined) }, { config: defaultConfig(), scheduleWrite: () => {} })
+  const catalog = await service.listCatalog()
+  // 提供方:configurable(deepseek-official)+ 注册路由去重;含 deepseek-cn。
+  const ids = catalog.providers.map(p => p.id).sort()
+  assert.deepEqual(ids, ['deepseek-cn', 'deepseek-official'])
+  // 模型:按提供方展开。
+  assert.equal(catalog.models.length, 3)
+  const flash = catalog.models.find(m => m.id === 'deepseek-v4-flash')
+  assert.equal(flash.provider, 'deepseek-official')
+})
+
+test('monitor 服务:listCatalog 在无 llm 服务时返回空目录', async () => {
+  const service = createService({ get: () => undefined }, { config: defaultConfig(), scheduleWrite: () => {} })
+  const catalog = await service.listCatalog()
+  assert.deepEqual(catalog, { providers: [], models: [] })
+})
