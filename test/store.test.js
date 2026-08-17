@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Ledger, applyConfigPatch, defaultConfig, localDayKey } from '../lib/store.js'
@@ -91,7 +91,8 @@ test('Ledger 原子写落盘往返', () => withTemp(path => {
   // 新键用默认值补齐。
   const reopened = new Ledger(defaultConfig(), {}, path)
   reopened.config = Object.assign({}, defaultConfig(), parsed.config)
-  assert.equal(reopened.config.prices.models['deepseek-v4-flash'].cacheMiss, 0.22)
+  assert.equal(reopened.config.prices.usd.models['deepseek-v4-flash'].cacheMiss, 0.22)
+  assert.equal(reopened.config.prices.cny.models['deepseek-v4-flash'].cacheMiss, 1.5)
 }))
 
 test('applyConfigPatch: 追加 deepseek / opencode / custom 提供方配置', () => {
@@ -148,11 +149,76 @@ test('applyConfigPatch: providers 整表替换语义(删除即消失)', () => {
   assert.deepEqual(Object.keys(config.providers), ['b'])
 })
 
-test('applyConfigPatch: prices.models 整表替换语义', () => {
+test('applyConfigPatch: prices 子表(models)整表替换语义', () => {
   const current = defaultConfig()
   const { config, errors } = applyConfigPatch(current, {
-    prices: { models: { 'deepseek-v4-flash': { cacheHit: 0.1, cacheMiss: 0.2, output: 0.3 } } },
+    prices: { usd: { models: { 'deepseek-v4-flash': { cacheHit: 0.1, cacheMiss: 0.2, output: 0.3 } } } },
   })
   assert.deepEqual(errors, [])
-  assert.deepEqual(Object.keys(config.prices.models), ['deepseek-v4-flash'])
+  assert.deepEqual(Object.keys(config.prices.usd.models), ['deepseek-v4-flash'])
+  // cny 子表不受影响。
+  assert.ok(config.prices.cny.models['deepseek-v4-flash'] !== undefined)
 })
+
+test('applyConfigPatch: 双表各自校验,单侧非法整体拒绝', () => {
+  const current = defaultConfig()
+  assert.ok(applyConfigPatch(current, {
+    prices: { cny: { models: { 'deepseek-v4-flash': null } } },
+  }).errors.length > 0)
+  // default 非法也应拒绝。
+  assert.ok(applyConfigPatch(current, {
+    prices: { cny: { models: {}, default: { nope: 1 } } },
+  }).errors.length > 0)
+  assert.ok(applyConfigPatch(current, {
+    prices: { usd: { models: {}, default: { cacheHit: 0.1, cacheMiss: 0.2, output: 0.3 } } },
+  }).errors.length === 0)
+})
+
+test('Ledger.account: 成本按生效币种记录并带 currency 标记', () => withTemp(path => {
+  const config = defaultConfig()
+  config.locale = 'zh' // 中文 → 人民币计费
+  const ledger = new Ledger(config, {}, path)
+  ledger.account({ input: 1_000_000, output: 0, cacheRead: 0, cacheWrite: 0 }, 'deepseek-v4-flash', 's1', Date.parse('2026-08-17T12:00:00Z'))
+  const day = ledger.days['2026-08-17']
+  assert.equal(day.currency, 'cny')
+  assert.equal(day.sessions[0].currency, 'cny')
+  // 1M tokens 未命中 × 人民币空闲价 1.5 元。
+  assert.ok(Math.abs(day.cost - 1.5) < 1e-9, `expected cny cost ~1.5, got ${day.cost}`)
+}))
+
+test('Ledger.account: en 语言按美元表计费', () => withTemp(path => {
+  const config = defaultConfig()
+  config.locale = 'en'
+  const ledger = new Ledger(config, {}, path)
+  ledger.account({ input: 1_000_000, output: 0, cacheRead: 0, cacheWrite: 0 }, 'deepseek-v4-flash', 's1', Date.parse('2026-08-17T12:00:00Z'))
+  const day = ledger.days['2026-08-17']
+  assert.equal(day.currency, 'usd')
+  assert.ok(Math.abs(day.cost - 0.22) < 1e-9, `expected usd cost ~0.22, got ${day.cost}`)
+}))
+
+test('Ledger.open: 旧单表 prices 迁移为双表', () => withTemp(path => {
+  const legacy = defaultConfig()
+  legacy.prices = { models: { deepseek: { cacheHit: 0.1, cacheMiss: 0.2, output: 0.3 } }, default: { cacheHit: 0.1, cacheMiss: 0.2, output: 0.3 } }
+  delete legacy.currency
+  delete legacy.symbol
+  delete legacy.exchangeRate
+  const dir = join(tempPath().dir, 'home')
+  mkdirSync(dir)
+  const ledgerPath = join(dir, 'storages', 'dsh-monitor', 'ledger.json')
+  mkdirSync(join(dir, 'storages', 'dsh-monitor'), { recursive: true })
+  writeFileSync(ledgerPath, JSON.stringify({ version: 1, config: legacy, days: {} }), 'utf8')
+
+  const oldHome = process.env.DSH_HOME
+  process.env.DSH_HOME = dir
+  let restored
+  try {
+    restored = Ledger.open()
+  } finally {
+    if (oldHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = oldHome
+  }
+  assert.ok(restored.config.prices.usd.models.deepseek !== undefined)
+  assert.ok(restored.config.prices.cny.models['deepseek-v4-flash'] !== undefined)
+  // 旧 USD 表保留 deepseek 模型(不丢数据)。
+  assert.equal(restored.config.prices.usd.models.deepseek.cacheMiss, 0.2)
+}))

@@ -34,16 +34,19 @@ dsh plugin --profile web add <本仓库路径>
 ```jsonc
 {
   "locale": "auto",            // auto | zh | en
-  "currency": "CNY",           // 角标展示币种(账本恒存美元)
-  "symbol": "¥",
   "decimals": 4,
-  "exchangeRate": 7.2,
   "peakEnabled": true,         // 峰谷计价
   "peakEffectiveAt": "2026-08-01T00:00:00Z",
   "peakWindows": [{ "start": 1, "end": 4 }, { "start": 6, "end": 10 }],
-  "prices": {                  // 美元 / 1M tokens;cacheWrite 按命中价计
-    "models": { "deepseek-v4-flash": { "cacheHit": 0.007, "cacheMiss": 0.22, "output": 0.66, "offPeak": {}, "peak": {}, "legacyBase": {} }, "deepseek-v4-pro": {} },
-    "default": { "cacheHit": 0.007, "cacheMiss": 0.22, "output": 0.66 }
+  "prices": {                  // 双币种独立价格表;生效币种按界面语言(zh→cny,其他→usd)
+    "usd": {                   // 美元 / 1M tokens;cacheWrite 按命中价计
+      "models": { "deepseek-v4-flash": { "cacheHit": 0.007, "cacheMiss": 0.22, "output": 0.66, "offPeak": {}, "peak": {}, "legacyBase": {} }, "deepseek-v4-pro": {} },
+      "default": { "cacheHit": 0.007, "cacheMiss": 0.22, "output": 0.66 }
+    },
+    "cny": {                   // 人民币 / 1M tokens(中文界面按此计费与展示)
+      "models": { "deepseek-v4-flash": { "cacheHit": 0.05, "cacheMiss": 1.5, "output": 4.5, "offPeak": {}, "peak": {}, "legacyBase": {} }, "deepseek-v4-pro": {} },
+      "default": { "cacheHit": 0.05, "cacheMiss": 1.5, "output": 4.5 }
+    }
   },
   "providers": {
     "deepseek-official": { "enabled": true, "preset": "deepseek", "refreshMinutes": 5, "apiKey": "" }, // 可选(覆盖内置默认)

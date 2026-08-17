@@ -2,14 +2,18 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   DEFAULT_PRICE_TABLE,
+  DEFAULT_PRICE_TABLE_CNY,
+  CNY_LEGACY_BASE_PRICES,
   DEFAULT_PEAK_WINDOWS,
   DEFAULT_PEAK_EFFECTIVE_AT,
   LEGACY_BASE_BOUNDARY,
+  activeCurrency,
   costOf,
   isPeakHour,
   normalizePrice,
   parsePricingHtml,
   priceEntryFor,
+  priceTableFor,
   tierFor,
 } from '../lib/pricing.js'
 
@@ -104,4 +108,61 @@ test('默认价表包含 deepseek-v4-flash / deepseek-v4-pro', () => {
   assert.ok(FLASH !== undefined)
   assert.ok(PRO !== undefined)
   assert.ok(DEFAULT_PRICE_TABLE.default !== undefined)
+})
+
+// ── 双币种:默认 CNY 表 / 选表 / 中文页解析 ────────────────────────────
+
+test('默认 CNY 价表与官方中文页数字一致', () => {
+  const flash = DEFAULT_PRICE_TABLE_CNY.models['deepseek-v4-flash']
+  const pro = DEFAULT_PRICE_TABLE_CNY.models['deepseek-v4-pro']
+  assert.ok(flash !== undefined && pro !== undefined)
+  assert.deepEqual({ cacheHit: flash.cacheHit, cacheMiss: flash.cacheMiss, output: flash.output }, { cacheHit: 0.05, cacheMiss: 1.5, output: 4.5 })
+  assert.deepEqual(flash.peak, { cacheHit: 0.1, cacheMiss: 3.0, output: 9.0 })
+  assert.deepEqual(flash.legacyBase, CNY_LEGACY_BASE_PRICES['deepseek-v4-flash'])
+  assert.deepEqual({ cacheHit: pro.cacheHit, cacheMiss: pro.cacheMiss, output: pro.output }, { cacheHit: 0.15, cacheMiss: 4.5, output: 13.5 })
+  assert.deepEqual(pro.peak, { cacheHit: 0.3, cacheMiss: 9.0, output: 27.0 })
+  assert.deepEqual(DEFAULT_PRICE_TABLE_CNY.default, { cacheHit: 0.05, cacheMiss: 1.5, output: 4.5 })
+})
+
+test('activeCurrency: zh/auto → cny,en → usd', () => {
+  assert.equal(activeCurrency({ locale: 'zh' }), 'cny')
+  assert.equal(activeCurrency({ locale: 'auto' }), 'cny')
+  assert.equal(activeCurrency({ locale: 'en' }), 'usd')
+  assert.equal(activeCurrency({}), 'cny')
+})
+
+const DUAL_CONFIG = {
+  locale: 'zh',
+  prices: {
+    usd: { models: { m: { cacheHit: 0.1, cacheMiss: 0.2, output: 0.3 } }, default: { cacheHit: 0.1, cacheMiss: 0.2, output: 0.3 } },
+    cny: { models: { m: { cacheHit: 1, cacheMiss: 2, output: 3 } }, default: { cacheHit: 1, cacheMiss: 2, output: 3 } },
+  },
+}
+
+test('priceTableFor: 按 locale 选表/缺子表回退', () => {
+  assert.equal(priceTableFor(DUAL_CONFIG).models.m.cacheMiss, 2) // zh → cny
+  assert.equal(priceTableFor({ ...DUAL_CONFIG, locale: 'en' }).models.m.cacheMiss, 0.2) // en → usd
+  const partial = { locale: 'zh', prices: {} }
+  assert.deepEqual(priceTableFor(partial), { models: {}, default: { cacheHit: 0, cacheMiss: 0, output: 0 } })
+})
+
+const FIXTURE_HTML_CNY = `
+<table>
+  <tr><td colspan="3">模型</td><td>deepseek-v4-flash</td><td>deepseek-v4-pro</td></tr>
+  <tr><td rowspan="6">价格</td><td rowspan="2">百万tokens输入（缓存命中）</td><td>空闲时段</td><td>0.05元</td><td>0.15元</td></tr>
+  <tr><td>高峰时段</td><td>0.10元</td><td>0.30元</td></tr>
+  <tr><td rowspan="2">百万tokens输入（缓存未命中）</td><td>空闲时段</td><td>1.5元</td><td>4.5元</td></tr>
+  <tr><td>高峰时段</td><td>3.0元</td><td>9.0元</td></tr>
+  <tr><td rowspan="2">百万tokens输出</td><td>空闲时段</td><td>4.5元</td><td>13.5元</td></tr>
+  <tr><td>高峰时段</td><td>9.0元</td><td>27.0元</td></tr>
+</table>
+`
+
+test('parsePricingHtml(target=cny): 中文页解析出两模型与峰谷档', () => {
+  const parsed = parsePricingHtml(FIXTURE_HTML_CNY, 'cny')
+  assert.deepEqual(Object.keys(parsed.models).sort(), ['deepseek-v4-flash', 'deepseek-v4-pro'])
+  const flash = parsed.models['deepseek-v4-flash']
+  assert.deepEqual(flash.offPeak, { cacheHit: 0.05, cacheMiss: 1.5, output: 4.5 })
+  assert.deepEqual(flash.peak, { cacheHit: 0.1, cacheMiss: 3.0, output: 9.0 })
+  assert.deepEqual(flash.legacyBase, CNY_LEGACY_BASE_PRICES['deepseek-v4-flash'])
 })
