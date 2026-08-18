@@ -7,8 +7,10 @@ import {
   DEFAULT_PEAK_EFFECTIVE_AT,
   activeCurrency,
   costOf,
+  hourInWindows,
   isPeakHour,
   normalizePrice,
+  normalizeWindows,
   parsePricingHtml,
   priceEntryFor,
   priceTableFor,
@@ -42,6 +44,63 @@ test('tierFor: 禁用峰谷时恒取基础档', () => {
   const tier = tierFor(FLASH, Date.parse('2026-08-17T02:00:00Z'), { enabled: false })
   assert.deepEqual({ cacheHit: tier.cacheHit, cacheMiss: tier.cacheMiss, output: tier.output },
     { cacheHit: FLASH.cacheHit, cacheMiss: FLASH.cacheMiss, output: FLASH.output })
+})
+
+// ── 每模型峰谷窗口 + 补集语义 ────────────────────────────────────────────
+
+function entryWith(tier, windows) {
+  return { cacheHit: 1, cacheMiss: 2, output: 3, offPeak: { cacheHit: 10, cacheMiss: 20, output: 30 }, peak: { cacheHit: 100, cacheMiss: 200, output: 300 }, ...(windows !== undefined ? { windows } : {}) }
+}
+
+test('tierFor: 模型自带 peak 窗口 → 窗口内高峰、窗口外空闲', () => {
+  const e = entryWith('peak', { peak: [{ start: 2, end: 4 }] })
+  const inPeak = tierFor(e, Date.parse('2026-08-17T02:00:00Z'), peak())
+  assert.deepEqual(inPeak, { cacheHit: 100, cacheMiss: 200, output: 300 })
+  const outside = tierFor(e, Date.parse('2026-08-17T12:00:00Z'), peak())
+  assert.deepEqual(outside, { cacheHit: 10, cacheMiss: 20, output: 30 })
+})
+
+test('tierFor: 只设 peak 窗口,窗口外即空闲(补集)', () => {
+  const e = entryWith('peak', { peak: [{ start: 2, end: 4 }] })
+  // 模型自带窗口优先,忽略全局窗口:UTC 08 在全局窗口 [6,10) 内,但不在模型窗口内 → 空闲。
+  const outside = tierFor(e, Date.parse('2026-08-17T08:00:00Z'), peak())
+  assert.deepEqual(outside, { cacheHit: 10, cacheMiss: 20, output: 30 })
+})
+
+test('tierFor: 只设 offPeak 窗口 → 窗口内空闲、窗口外高峰(补集)', () => {
+  const e = entryWith('offPeak', { offPeak: [{ start: 2, end: 4 }] })
+  const inOff = tierFor(e, Date.parse('2026-08-17T03:00:00Z'), peak())
+  assert.deepEqual(inOff, { cacheHit: 10, cacheMiss: 20, output: 30 })
+  const outside = tierFor(e, Date.parse('2026-08-17T12:00:00Z'), peak())
+  assert.deepEqual(outside, { cacheHit: 100, cacheMiss: 200, output: 300 })
+})
+
+test('tierFor: 两者都设,重叠处高峰优先', () => {
+  const e = entryWith('both', { peak: [{ start: 2, end: 5 }], offPeak: [{ start: 3, end: 6 }] })
+  const overlap = tierFor(e, Date.parse('2026-08-17T04:30:00Z'), peak()) // 4 点在两个窗口内 → 高峰
+  assert.deepEqual(overlap, { cacheHit: 100, cacheMiss: 200, output: 300 })
+  const offOnly = tierFor(e, Date.parse('2026-08-17T05:30:00Z'), peak()) // 5 点仅 offPeak 窗 [3,6)
+  assert.deepEqual(offOnly, { cacheHit: 10, cacheMiss: 20, output: 30 })
+})
+
+test('tierFor: 两者都没设 → 回退全局官方窗口(命中高峰用 peak,窗外 offPeak)', () => {
+  const e = entryWith('none', undefined)
+  const inGlobalPeak = tierFor(e, Date.parse('2026-08-17T02:00:00Z'), peak())
+  assert.deepEqual(inGlobalPeak, { cacheHit: 100, cacheMiss: 200, output: 300 }) // 官方窗 [1,4)
+  const outside = tierFor(e, Date.parse('2026-08-17T12:00:00Z'), peak())
+  assert.deepEqual(outside, { cacheHit: 10, cacheMiss: 20, output: 30 })
+})
+
+test('normalizeWindows: 合法窗口保留,非法/空剔除,全空返回 undefined', () => {
+  assert.deepEqual(normalizeWindows({ peak: [{ start: 2, end: 4 }, { start: 'x', end: 5 }], offPeak: [] }), { peak: [{ start: 2, end: 4 }] })
+  assert.deepEqual(normalizeWindows({ peak: [{ start: 23, end: 2 }] }), { peak: [{ start: 23, end: 2 }] })
+  assert.equal(normalizeWindows({ offPeak: [{ start: 9, end: 25 }] }), undefined)
+  assert.equal(normalizeWindows(null), undefined)
+})
+
+test('normalizePrice: 保留规范窗口', () => {
+  const e = normalizePrice({ cacheHit: 0.007, cacheMiss: 0.22, output: 0.66, windows: { peak: [{ start: 1, end: 4 }] } })
+  assert.deepEqual(e.windows, { peak: [{ start: 1, end: 4 }] })
 })
 
 test('isPeakHour: 窗口边界半开', () => {
