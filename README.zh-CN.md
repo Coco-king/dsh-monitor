@@ -15,8 +15,8 @@ DeepSeek Harness 会话计费 + 通用提供方用量查询插件。
 ## 安装
 
 ```sh
-dsh plugin --profile web add https://github.com/Coco-king/dsh-monitor.git  # GitHub(默认)
-dsh plugin --profile web add https://gitee.com/kkcoco/dsh-monitor.git      # Gitee(国内可用)
+dsh plugin --profile web add https://github.com/Coco-king/dsh-monitor.git#v0.1.1  # GitHub(默认)
+dsh plugin --profile web add https://gitee.com/kkcoco/dsh-monitor.git#v0.1.1      # Gitee(国内可用)
 ```
 
 包声明了 `dsh.bundle.patch`，安装后自动加入 web profile 的 bundle 层栈；`dsh plugin --profile web remove dsh-monitor` 可卸载。重启 web 服务（或刷新页面 + HMR）后生效。

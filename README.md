@@ -15,8 +15,8 @@ Session billing and per-provider usage quota plugin for DeepSeek Harness.
 ## Install
 
 ```sh
-dsh plugin --profile web add https://github.com/Coco-king/dsh-monitor.git  # GitHub
-dsh plugin --profile web add https://gitee.com/kkcoco/dsh-monitor.git      # Gitee (users in mainland China)
+dsh plugin --profile web add https://github.com/Coco-king/dsh-monitor.git#v0.1.1  # GitHub
+dsh plugin --profile web add https://gitee.com/kkcoco/dsh-monitor.git#v0.1.1      # Gitee (users in mainland China)
 ```
 
 The package declares `dsh.bundle.patch`, so it joins the web profile's bundle layer automatically; `dsh plugin --profile web remove dsh-monitor` uninstalls. Restart the web service (or refresh + HMR) to apply.
