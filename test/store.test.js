@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Ledger, applyConfigPatch, defaultConfig, localDayKey } from '../lib/store.js'
+import { Ledger, applyConfigPatch, defaultConfig, localDayKey, normalizeProject } from '../lib/store.js'
 
 /** 临时账本目录(返回 { dir, ledger, configPath, dbPath })。 */
 function withTemp(fn) {
@@ -167,6 +167,91 @@ test('Ledger.usageSummary: 总计/按天/模型/会话 + 提供方与模型筛�
   assert.equal(day18.totals.input, 500)
   assert.equal(day18.byDay.length, 1)
   assert.equal(day18.byDay[0].date, '2026-08-18')
+}))
+
+test('normalizeProject: 去尾部分隔符、缺省空串、根路径原样', () => {
+  assert.equal(normalizeProject('C:\\work\\web\\'), 'C:\\work\\web')
+  assert.equal(normalizeProject('/tmp/proj/'), '/tmp/proj')
+  assert.equal(normalizeProject('  '), '')
+  assert.equal(normalizeProject(undefined), '')
+  assert.equal(normalizeProject('/'), '/')
+})
+
+test('Ledger.setProject / usageSummary.byProject: 项目归因与未记录目录', () => withTemp(({ ledger }) => {
+  ledger.fold('s1', [usageEvent(1, 1, 0, { inputTokens: 1000 }, 'deepseek-official', 'deepseek-v4-flash', '2026-08-17T02:00:00Z')])
+  ledger.fold('s2', [usageEvent(1, 1, 0, { inputTokens: 200 }, 'opencode', 'gpt-5', '2026-08-18T03:00:00Z')])
+  // 只有 s1 记录项目 cwd;s2 无 sessions 行 → 归入未记录目录(project '')。
+  ledger.setProject('s1', normalizeProject('C:\\work\\web\\'))
+  const rows = ledger.usageSummary({}).byProject
+  assert.equal(rows.length, 2)
+  const s1 = rows.find(r => r.project === 'C:\\work\\web')
+  const none = rows.find(r => r.project === '')
+  assert.equal(s1.input, 1000)
+  assert.equal(s1.output, 0)
+  assert.equal(s1.calls, 1)
+  assert.equal(none.input, 200)
+  // 会话项目覆盖写。
+  ledger.setProject('s1', normalizeProject('C:\\work\\api'))
+  const after = ledger.usageSummary({}).byProject
+  assert.equal(after.length, 2)
+  assert.ok(after.some(r => r.project === 'C:\\work\\api'))
+}))
+
+test('Ledger.usageSummary: byProvider 按 providerId 去重聚合(含 unknown)', () => withTemp(({ ledger }) => {
+  ledger.fold('s1', [
+    usageEvent(1, 1, 0, { inputTokens: 100 }, 'deepseek-official', 'deepseek-v4-flash', '2026-08-17T02:00:00Z'),
+    usageEvent(2, 2, 0, { inputTokens: 50 }, 'unknown', 'deepseek-v4-flash', '2026-08-17T03:00:00Z'),
+  ])
+  const rows = ledger.usageSummary({}).byProvider
+  assert.equal(rows.length, 2)
+  assert.equal(rows.find(r => r.provider === 'deepseek-official').input, 100)
+  assert.equal(rows.find(r => r.provider === 'unknown').input, 50)
+}))
+
+test('Ledger.usageSummary: windows 三窗 + 活跃度窗口与逐日模型拆分 + 诊断与时区', () => withTemp(({ ledger }) => {
+  // 用「今天」事件:活跃度按 371 天窗口过滤,保证测试与真实日期无关。
+  const today = new Date()
+  const now = today.getTime()
+  ledger.fold('s1', [{
+    seq: 1, time: now, type: 'assistant/message',
+    data: { turn: 1, step: 0, usage: { inputTokens: 100, cacheReadTokens: 50 }, message: { source: { provider: 'deepseek-official', model: 'deepseek-v4-flash' } } },
+  }])
+  // 十天前的事件:验证三窗与所选范围相互独立。
+  ledger.fold('s2', [{
+    seq: 1, time: now - 10 * 86_400_000, type: 'assistant/message',
+    data: { turn: 1, step: 0, usage: { inputTokens: 50 }, message: { source: { provider: 'opencode', model: 'gpt-5' } } },
+  }])
+  const summary = ledger.usageSummary({})
+  // 三窗:all 与 totals 同口径(全量);各窗字段类型齐全。
+  assert.equal(summary.windows.all.input, summary.totals.input)
+  for (const key of ['today', 'month', 'all']) {
+    assert.equal(typeof summary.windows[key].input, 'number')
+    assert.equal(typeof summary.windows[key].calls, 'number')
+  }
+  // 带范围查询时,「累计」卡不被 range 过滤;totals(所选窗口)才被过滤。
+  const filtered = ledger.usageSummary({ range: { start: localDayKey(now) } })
+  assert.equal(filtered.totals.input, 100)
+  assert.equal(filtered.windows.all.input, 150)
+  assert.equal(filtered.windows.today.input, 100)
+  assert.equal(filtered.windows.month.input, 150)
+  // 活跃度:含今天的按天行 + 逐日模型拆分。
+  const key = localDayKey(now)
+  assert.ok(Array.isArray(summary.activity))
+  assert.ok(summary.activity.length >= 1)
+  assert.ok(summary.activity.some(d => d.date === key))
+  const flash = summary.activityModels.find(r => r.day === key && r.model === 'deepseek-v4-flash')
+  assert.ok(flash !== undefined)
+  assert.equal(flash.input, 100)
+  // 诊断 + 时区。
+  assert.equal(typeof summary.diagnostics.lastUsageAt, 'number')
+  assert.equal(summary.diagnostics.unattributedRows, 0)
+  assert.match(summary.timeZone.offset, /^[+-]\d{2}:\d{2}$/)
+  assert.equal(typeof summary.timeZone.name, 'string')
+}))
+
+test('Ledger.usageSummary: 归因不上的行计入 diagnostics.unattributedRows', () => withTemp(({ ledger }) => {
+  ledger.fold('s1', [usageEvent(1, 1, 0, { inputTokens: 100 }, 'unknown', 'unknown', '2026-08-17T02:00:00Z')])
+  assert.equal(ledger.usageSummary({}).diagnostics.unattributedRows, 1)
 }))
 
 test('Ledger.prune: 保留最近 historyDays 天', () => withTemp(({ ledger }) => {

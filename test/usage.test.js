@@ -303,3 +303,41 @@ test('monitor 服务:getUsage 委托账本 usageSummary', async () => {
   assert.equal(calls.length, 1)
   assert.deepEqual(calls[0], { range: { start: '2026-08-01' } })
 })
+
+test('monitor 服务:getUsage 拼装 lastSweepAt 与提供方显示名字典', async () => {
+  const ledger = {
+    config: defaultConfig(),
+    scheduleWrite: () => {},
+    usageSummary: () => ({ totals: { input: 1 }, byDay: [], sessions: [] }),
+  }
+  const ctx = makeCtx({
+    get: name => {
+      if (name === 'llm') {
+        return { listProviders: () => [
+          { id: 'deepseek-official', name: 'DeepSeek' },
+          { id: 'relay-a', name: '' },
+        ] }
+      }
+      return undefined
+    },
+  })
+  const service = createService(ctx, ledger, { sweepStats: () => ({ lastSweepAt: 1234 }) })
+  const result = await service.getUsage({})
+  assert.equal(result.lastSweepAt, 1234)
+  // name 缺省/空 → 回退 id 本身(客户端直接显示 id)。
+  assert.deepEqual(result.providers, [
+    { id: 'deepseek-official', name: 'DeepSeek' },
+    { id: 'relay-a', name: 'relay-a' },
+  ])
+})
+
+test('monitor 服务:getUsage sweepStats 缺失时 lastSweepAt 为 null', async () => {
+  const ledger = {
+    config: defaultConfig(),
+    scheduleWrite: () => {},
+    usageSummary: () => ({ totals: { input: 1 }, byDay: [], sessions: [] }),
+  }
+  const service = createService(makeCtx(), ledger)
+  const result = await service.getUsage({})
+  assert.equal(result.lastSweepAt, null)
+})
