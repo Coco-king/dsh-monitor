@@ -120,12 +120,16 @@ test('fold: 非法 token 归一化为 0', () => {
   assert.equal(rows[0].cacheRead, 0)
 })
 
-test('fold: cost 由 bill 注入(按事件时刻),不同步不同档', () => {
-  // 用假 bill:每令牌 1 元,验证 cost 按桶注入。
+test('fold: cost 由 bill 注入(双币),按桶数值计费', () => {
+  // 用假 bill:每令牌照桶数值回 USD / CNY 各一份,验证双币落桶。
   const state = createUsageState()
   applyUsageDelta(state, [
     msg(1, 1, 0, { inputTokens: 3, outputTokens: 4, cacheReadTokens: 5, cacheWriteTokens: 6 }, 'deepseek-official', 'deepseek-v4-flash', '2026-08-17T06:00:00Z'),
-  ], { bill: ({ buckets }) => buckets.input + buckets.output + buckets.cacheRead + buckets.cacheWrite })
+  ], { bill: ({ buckets }) => ({
+    costUsd: buckets.input + buckets.output,
+    costCny: buckets.input + buckets.output + buckets.cacheRead + buckets.cacheWrite,
+  }) })
   const rows = flattenState(state)
-  assert.equal(rows[0].cost, 18)
+  assert.equal(rows[0].costUsd, 7)
+  assert.equal(rows[0].costCny, 18)
 })

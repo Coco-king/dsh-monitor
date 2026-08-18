@@ -32,11 +32,13 @@
 1. 账本从 JSON 全量移植为 **SQLite**(`node:sqlite`,零新增运行时依赖),架构改为
    「日志为事实、账本为投影」:支持历史回填、重启不丢、`reindex` 重建。
 2. rollup 行按 `(sessionId, day, provider, model)` 聚合,**同一会话切换模型=多行**,
-   `GROUP BY` 切分准确(含 cost,折叠时按事件时刻峰谷计费,延续现有精确计费卖点)。
+   `GROUP BY` 切分准确;**费用 USD 与 CNY 双币各存一列**(`costUsd`/`costCny`,
+   折叠时两套价格表各自按事件时刻峰谷计费,历史固定不回溯)。
 3. 查询接口 `monitor.getUsage`:时间范围 + 提供方 + 模型筛选,返回
-   `totals`(卡片)/`byDay`(按天柱形)/`sessions`(会话列表)。
-4. 设置→用量新增「用量汇总」分区:今日/本月卡片 + 筛选 + 按天柱形 + 会话列表,
-   图表手写 SVG,零第三方依赖。
+   `totals`(卡片)/`byDay`(按天柱形 + 热力带)/`models`(模型表)/`sessions`(会话列表)。
+4. **看板改为侧边栏入口**(`sidebar.footer.action` 徽标,仿 TokenLedger):点击弹出
+   浮动面板,含今日/本月/全部卡片(兼范围切换)、按天柱形 + 活动热力带、模型分布表、
+   会话列表;图表手写 SVG,零第三方依赖。**不再放在设置→计费 页内**。
 5. 保留:会话费用角标(costUsage 投影)、提供方用量面板、价格表/峰谷/配置
    (applyConfigPatch 校验与 API 不变)。
 
@@ -162,35 +164,44 @@ response: {
   `MAX(day)`(日期列),按 `lastUsageAt`(`sweep_progress`)倒序。
 - 筛选同时作用于按天柱形与会话列表(与会话行匹配的 `provider`/`model`)。
 
-## UI(设置 → 用量 →「用量汇总」分区)
+## UI(侧边栏看板,仿 TokenLedger)
 
-自上而下:
+看板**不再是设置页分区**,而是挂在 `sidebar.footer.action` 插槽(侧边栏底部、设置
+齿轮旁)的**徽标 + 浮动面板**:展开侧栏显示「本日 token 总数」徽标,折叠为圆形图标;
+点击弹出固定面板(`position:fixed` 左下,仿 TokenLedger)。图表手写 SVG
+(`chart.js` + `dashboard.js`,零第三方依赖)。面板自上而下:
 
-1. **汇总卡片 ×2**:"今日" 与 "本月累计"(token 总数 + 费用 + 调用次数),
-   **不随筛选变化**,全局概览。
-2. **筛选行**:时间范围(今日 / 近 7 天 / 近 30 天 / 本月 / 自定义区间)
-   + 提供方下拉(来自 `listCatalog` 的 active 提供方)+ 该提供方下模型多选。
-3. **按天柱形图**:横轴日期、纵轴 token 数,悬停 tooltip 显示当日四项与费用;
-   手写 SVG(`chart.js`,零第三方依赖,沿用 GaugeIcon 先例)。
-4. **会话列表**:每行 = 会话(id 截断)+ 日期 + 提供方/模型 + 费用 + token 总数
-   + 调用次数;按时间倒序;不做展开。
+1. **统计卡片 ×3** —— 今日 / 本月 / 全部,各显自身窗口的 token 总数,**兼作范围切换**
+   (点击即切换下方内容范围,仿 TokenLedger 的 cards-as-range-control)。
+2. **按天柱形**(所选范围):横轴日期、纵轴 token 数,悬停显示当日 token 与费用。
+3. **模型分布表**(所选范围):provider × model 聚合,按 token 降序,列 = 模型 / token /
+   调用次数 / 费用。
+4. **会话列表**(所选范围):每行 = 会话 id(截断)+ 日期 + token + 费用;按时间倒序,
+   不展开明细,前 50 条。
+5. **活动热力带**(近 91 天,独立窗口):周列 12px 网格,分位数 0-4 档着色,悬停看当日
+   token(仿 TokenLedger,分位数档而非最大归一,避免单日峰压平)。
+
+费用双币:单元格/卡片按当前语言显示生效币种(`locale` → `costCny` 或 `costUsd`),
+历史数字不因切语言重算。
 
 ## 工程实现
 
 - `lib/store.js`:重写 `Ledger` 为 SQLite 驱动——保留 `getConfig/applyConfigPatch`
-  及 config 持久化(JSON 文件),账本数据(`account` 路径)改为折叠写入
-  `token_usage`;新增 `sweep`/`commitSession`/`usageSummary`/`reset`;
-  `Ledger.open` 建库建表 + schema 版本管理。`node:sqlite`(DatabaseSync)同步 API,
-  与 TokenLedger 用法一致。
-- 新增 `lib/fold.js`:从 `sessionPersistence` 读事件尾巴,折叠进会话状态
-  (移植 TokenLedger usage.js 的核心,去掉 site、加 cost 计算;语义与
-  `dsh-token-meter` 一致)。
-- `lib/index.js`:注入 `sessionPersistence`;启动/定时 60s `sweep`;移除 llm/stream
-  包裹(sweep 不再依赖请求路径);会话角标投影与 monitor 服务保留。
-- `lib/monitor.js`:`getUsage` 服务方法;`lib/typert.host.js` 补 codec 与 invocation。
-- `lib/client-src/`:新增 `chart.js`;`settings.js` 增「用量汇总」分区;
-  `main.js` 并入 `SettingsSection`;`i18n.js` 中英成对新文案(全角标点);
-  `codecs.js` 补 `getUsage` 线路校验。改完 `npm run build:client`。
+  及 config 持久化(JSON 文件),折叠结果写入 `token_usage`(双币费用两列
+  `costUsd`/`costCny`,各按事件时刻峰谷计);`#loadState` 从库水合旧状态做增量
+  续扫;新增 `fold`/`usageSummary`(totals/byDay/models/sessions)/`reset`/`prune`;
+  schema 版本 2,不匹配即 DROP 重建。`node:sqlite`(DatabaseSync)同步 API。
+- 新增 `lib/fold.js`:会话事件折叠(纯函数)——usage chunk + assistant/message 双收、
+  同 `(turn,step)` 替换语义、切模型分多行、unknown 兜底;`bill` 注入双币费用,
+  返回 `{ costUsd, costCny }`。
+- `lib/index.js`:注入 `sessionPersistence`;启动 + 每 60s 增量 `sweep`(未变会话跳过,
+  单会话失败只记日志);移除 llm/stream 实时包裹;会话角标投影与 monitor 服务保留。
+- `lib/monitor.js`:`getUsage` 服务方法;`lib/typert.host.js` 补双币 codec 与 invocation。
+- `lib/client-src/`:新增 `chart.js`(按天 SVG 柱形)与 `dashboard.js`(侧边栏徽标 +
+  浮动面板:三窗卡片 / 柱形 / 模型表 / 会话列表 / 91 天热力带);`main.js` 注册
+  `sidebar.footer.action` 插槽;`settings.js` **移除**用量汇总分区(计费页回退为
+  仅价格表);`i18n.js` 中英成对新文案(全角标点);`codecs.js` 补 `getUsage` 双币校验。
+  改完 `npm run build:client`。
 - 配置/价格表逻辑(`pricing.js`、monitor 的 listCatalog/fetchPrices)不动。
 
 ## 测试与验证

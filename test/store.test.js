@@ -58,6 +58,9 @@ test('Ledger.fold: 切模型的会话按 provider×model 拆行、替换语义�
   assert.equal(flash.requests, 1)
   const pro = rows.find(r => r.model === 'deepseek-v4-pro')
   assert.equal(pro.inputTokens, 500)
+  // 双币费用列都存在。
+  assert.equal(typeof flash.costUsd, 'number')
+  assert.equal(typeof flash.costCny, 'number')
   // sweep_progress 已推进。
   const progress = ledger.progressFor('s1')
   assert.equal(progress.consumedSeq, 5)
@@ -105,28 +108,29 @@ test('Ledger.fold: 非法 token 归一化为 0,仍计一次调用', () => withTe
   assert.equal(single[0].inputTokens, 0)
 }))
 
-test('Ledger.fold: 成本按生效币种计费并落 currency 列', () => withTemp(({ ledger }) => {
+test('Ledger.fold: 双币费用各按各自价格表计费(zh 无影响)', () => withTemp(({ ledger }) => {
+  ledger.fold('s1', [
+    usageEvent(1, 1, 0, { inputTokens: 1_000_000, outputTokens: 0 }, 'deepseek-official', 'deepseek-v4-flash', '2026-08-17T12:00:00Z'),
+  ])
+  const row = ledger.db.prepare('SELECT costUsd, costCny FROM token_usage').get()
+  // 1M tokens 未命中 × 空闲价:USD $0.22,CNY ¥1.5。
+  assert.ok(Math.abs(row.costUsd - 0.22) < 1e-9, `expected ~0.22, got ${row.costUsd}`)
+  assert.ok(Math.abs(row.costCny - 1.5) < 1e-9, `expected ~1.5, got ${row.costCny}`)
+}))
+
+test('Ledger.fold: 切换 locale 不影响已折叠的历史双币费用', () => withTemp(({ ledger }) => {
   ledger.config.locale = 'zh'
-  ledger.fold('s1', [
-    usageEvent(1, 1, 0, { inputTokens: 1_000_000, outputTokens: 0 }, 'deepseek-official', 'deepseek-v4-flash', '2026-08-17T12:00:00Z'),
-  ])
-  const row = ledger.db.prepare('SELECT cost, currency FROM token_usage').get()
-  assert.equal(row.currency, 'cny')
-  // 1M tokens 未命中 × 人民币空闲价 1.5 元。
-  assert.ok(Math.abs(row.cost - 1.5) < 1e-9, `expected ~1.5, got ${row.cost}`)
-}))
-
-test('Ledger.fold: en 语言按美元表计费', () => withTemp(({ ledger }) => {
+  ledger.fold('s1', [usageEvent(1, 1, 0, { inputTokens: 1_000_000 }, 'deepseek-official', 'deepseek-v4-flash', '2026-08-17T12:00:00Z')])
   ledger.config.locale = 'en'
-  ledger.fold('s1', [
-    usageEvent(1, 1, 0, { inputTokens: 1_000_000, outputTokens: 0 }, 'deepseek-official', 'deepseek-v4-flash', '2026-08-17T12:00:00Z'),
-  ])
-  const row = ledger.db.prepare('SELECT cost, currency FROM token_usage').get()
-  assert.equal(row.currency, 'usd')
-  assert.ok(Math.abs(row.cost - 0.22) < 1e-9, `expected ~0.22, got ${row.cost}`)
+  ledger.fold('s1', [usageEvent(2, 2, 0, { inputTokens: 500_000 }, 'deepseek-official', 'deepseek-v4-flash', '2026-08-17T13:00:00Z')])
+  const row = ledger.db.prepare('SELECT inputTokens, costUsd, costCny FROM token_usage').get()
+  assert.equal(row.inputTokens, 1_500_000)
+  // USD:1.5M × $0.22 = 0.33;CNY:1.5M × ¥1.5 = 2.25。
+  assert.ok(Math.abs(row.costUsd - 0.33) < 1e-9, `expected ~0.33, got ${row.costUsd}`)
+  assert.ok(Math.abs(row.costCny - 2.25) < 1e-9, `expected ~2.25, got ${row.costCny}`)
 }))
 
-test('Ledger.usageSummary: 总计/按天/会话列表 + 提供方与模型筛选', () => withTemp(({ ledger }) => {
+test('Ledger.usageSummary: 总计/按天/模型/会话 + 提供方与模型筛选(双币)', () => withTemp(({ ledger }) => {
   ledger.fold('s1', [
     usageEvent(1, 1, 0, { inputTokens: 1000, outputTokens: 100 }, 'deepseek-official', 'deepseek-v4-flash', '2026-08-17T02:00:00Z'),
     usageEvent(2, 2, 0, { inputTokens: 500, outputTokens: 50 }, 'deepseek-official', 'deepseek-v4-pro', '2026-08-18T02:00:00Z'),
@@ -139,8 +143,12 @@ test('Ledger.usageSummary: 总计/按天/会话列表 + 提供方与模型筛选
   assert.equal(all.totals.input, 1700)
   assert.equal(all.totals.calls, 3)
   assert.equal(all.byDay.length, 3)
+  assert.equal(all.models.length, 3) // flash / pro / gpt-5
   assert.equal(all.sessions.length, 2)
   assert.equal(all.sessions[0].id, 's2') // 日期倒序(08-19 在前)
+  // 双币费用字段都在。
+  assert.equal(typeof all.totals.costUsd, 'number')
+  assert.equal(typeof all.totals.costCny, 'number')
 
   // 提供方筛选。
   const deep = ledger.usageSummary({ providers: ['deepseek-official'] })
@@ -152,6 +160,7 @@ test('Ledger.usageSummary: 总计/按天/会话列表 + 提供方与模型筛选
   const flash = ledger.usageSummary({ models: ['deepseek-v4-flash'] })
   assert.equal(flash.totals.input, 1000)
   assert.equal(flash.byDay.length, 1)
+  assert.equal(flash.models.length, 1)
 
   // 时间范围筛选。
   const day18 = ledger.usageSummary({ range: { start: '2026-08-18', end: '2026-08-18' } })
@@ -168,23 +177,12 @@ test('Ledger.prune: 保留最近 historyDays 天', () => withTemp(({ ledger }) =
     const d = new Date(base.getTime() - i * 86_400_000)
     const day = localDayKey(d.getTime())
     ledger.db.prepare(
-      'INSERT INTO token_usage (sessionId, day, provider, model, inputTokens, requests, cost, currency) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-    ).run(`s${i}`, day, 'p', 'm', 1, 1, 0, 'usd')
+      'INSERT INTO token_usage (sessionId, day, provider, model, inputTokens, requests, costUsd, costCny) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    ).run(`s${i}`, day, 'p', 'm', 1, 1, 0, 0)
   }
   ledger.prune()
   const count = ledger.db.prepare('SELECT COUNT(*) AS n FROM token_usage').get()
   assert.equal(count.n, 7)
-}))
-
-test('Ledger.fold: 增量续扫不重算旧事件,切语言不回改历史成本', () => withTemp(({ ledger }) => {
-  ledger.config.locale = 'en'
-  ledger.fold('s1', [usageEvent(1, 1, 0, { inputTokens: 1_000_000 }, 'deepseek-official', 'deepseek-v4-flash', '2026-08-17T12:00:00Z')])
-  // 第二次续扫:新事件 seq=2。
-  ledger.fold('s1', [usageEvent(2, 2, 0, { inputTokens: 500_000 }, 'deepseek-official', 'deepseek-v4-flash', '2026-08-17T13:00:00Z')])
-  const row = ledger.db.prepare('SELECT inputTokens, cost FROM token_usage').get()
-  assert.equal(row.inputTokens, 1_500_000)
-  // 1M×$0.22 + 0.5M×$0.22 = 0.33(同一档 → 累计线性)。
-  assert.ok(Math.abs(row.cost - 0.33) < 1e-9, `expected ~0.33, got ${row.cost}`)
 }))
 
 test('Ledger 原子写落盘往返(配置)', () => withTemp(({ ledger, configPath }) => {
