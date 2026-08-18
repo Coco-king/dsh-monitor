@@ -1,98 +1,227 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Ledger, applyConfigPatch, defaultConfig, localDayKey } from '../lib/store.js'
 
-function tempPath() {
-  const dir = mkdtempSync(join(tmpdir(), 'dsh-monitor-test-'))
-  return { dir, path: join(dir, 'ledger.json') }
-}
-
+/** 临时账本目录(返回 { dir, ledger, configPath, dbPath })。 */
 function withTemp(fn) {
-  const { dir, path } = tempPath()
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-monitor-test-'))
+  const configPath = join(dir, 'ledger.json')
+  const dbPath = join(dir, 'ledger.sqlite')
+  const ledger = Ledger.openAt({ root: dir, configPath, dbPath })
   try {
-    return fn(path)
+    return fn({ dir, ledger, configPath, dbPath })
   } finally {
+    ledger.close()
     rmSync(dir, { recursive: true, force: true })
   }
 }
 
-test('Ledger.account: 日与会话双层聚合', () => withTemp(path => {
-  const ledger = new Ledger(defaultConfig(), {}, path)
-  const at1 = Date.parse('2026-08-17T02:00:00Z')
-  ledger.account({ input: 1000, output: 500, cacheRead: 200, cacheWrite: 100 }, 'deepseek-v4-flash', 's1', at1)
-  ledger.account({ input: 2000, output: 0, cacheRead: 0, cacheWrite: 0 }, 'deepseek-v4-flash', 's1', Date.parse('2026-08-17T03:00:00Z'))
-  ledger.account({ input: 10, output: 10, cacheRead: 0, cacheWrite: 0 }, 'deepseek-v4-pro', 's2', Date.parse('2026-08-17T12:00:00Z'))
+/** 构造一条带 provider/model 的 usage 事件。 */
+function usageEvent(seq, turn, step, usage, provider, model, iso) {
+  return {
+    seq, time: Date.parse(iso), type: 'assistant/message',
+    data: {
+      turn, step, usage,
+      message: { source: { provider, model } },
+    },
+  }
+}
 
-  // 断言事件日期的记录(不依赖机器当前日期/时区)。
-  const dayKey = localDayKey(at1)
-  const day = ledger.days[dayKey]
-  assert.ok(day !== undefined, 'day record exists for event date')
-  assert.equal(day.input, 3010)
-  assert.equal(day.output, 510)
-  assert.equal(day.cacheRead, 200)
-  assert.equal(day.cacheWrite, 100)
-  assert.equal(day.calls, 3)
-  assert.equal(day.sessions.length, 2)
-  const s1 = day.sessions.find(s => s.id === 's1')
-  assert.equal(s1.input, 3000)
-  assert.equal(s1.output, 500)
-  assert.equal(s1.calls, 2)
-  // 成本按各事件时刻档位计费(峰会高、空闲低),必为正。
-  assert.ok(day.cost > 0)
+/** 构造一个 request/header 事件(设置当前路线)。 */
+function headerEvent(seq, provider, model, iso) {
+  return {
+    seq, time: Date.parse(iso), type: 'request/header',
+    data: { header: { config: { provider, model } } },
+  }
+}
+
+test('Ledger.fold: 切模型的会话按 provider×model 拆行、替换语义、跨天归日', () => withTemp(({ ledger }) => {
+  // 同一步 flash:usage chunk 先报,assistant/message 终版(相邻、跨天)→ 替换。
+  ledger.fold('s1', [
+    headerEvent(1, 'deepseek-official', 'deepseek-v4-flash', '2026-08-17T12:00:00Z'),
+    { seq: 2, time: Date.parse('2026-08-17T12:01:00Z'), type: 'assistant/chunk', data: { turn: 1, step: 0, chunk: { type: 'usage', usage: { inputTokens: 1000, outputTokens: 200 } } } },
+    usageEvent(3, 1, 0, { inputTokens: 1000, outputTokens: 250, cacheReadTokens: 100 }, 'deepseek-official', 'deepseek-v4-flash', '2026-08-17T23:00:00Z'),
+    headerEvent(4, 'deepseek-official', 'deepseek-v4-pro', '2026-08-18T01:00:00Z'),
+    usageEvent(5, 2, 0, { inputTokens: 500, outputTokens: 100 }, 'deepseek-official', 'deepseek-v4-pro', '2026-08-18T01:05:00Z'),
+  ])
+
+  // token_usage 应有 2 行:flash(替换后归到 08-18)+ pro。
+  const rows = ledger.db.prepare('SELECT * FROM token_usage ORDER BY model').all()
+  assert.equal(rows.length, 2)
+  const flash = rows.find(r => r.model === 'deepseek-v4-flash')
+  assert.equal(flash.inputTokens, 1000)
+  assert.equal(flash.outputTokens, 250) // 替换了 chunk 的 200
+  assert.equal(flash.cacheReadTokens, 100)
+  assert.equal(flash.requests, 1)
+  const pro = rows.find(r => r.model === 'deepseek-v4-pro')
+  assert.equal(pro.inputTokens, 500)
+  // sweep_progress 已推进。
+  const progress = ledger.progressFor('s1')
+  assert.equal(progress.consumedSeq, 5)
+  assert.equal(progress.lastUsageAt, Date.parse('2026-08-18T01:05:00Z'))
 }))
 
-test('Ledger.account: 非法 token 归一化为 0', () => withTemp(path => {
-  const ledger = new Ledger(defaultConfig(), {}, path)
-  ledger.account({ input: -5, output: Number.NaN, cacheRead: 'x', cacheWrite: undefined }, 'deepseek-v4-flash', 's1', Date.now())
-  const today = ledger.today()
-  assert.equal(today.input, 0)
-  assert.equal(today.output, 0)
-  assert.equal(today.cacheRead, 0)
-  assert.equal(today.calls, 1)
-  assert.equal(today.cost, 0)
+test('Ledger.fold: usage chunk 双收 + request/header 归因 + unknown 兜底', () => withTemp(({ ledger }) => {
+  // 无 request/header:usage chunk 也应收(失败调用也计费),归到 unknown。
+  ledger.fold('s1', [
+    { seq: 1, time: Date.parse('2026-08-17T06:00:00Z'), type: 'assistant/chunk', data: { turn: 1, step: 0, chunk: { type: 'usage', usage: { inputTokens: 50, outputTokens: 5 } } } },
+  ])
+  let rows = ledger.db.prepare('SELECT provider, model, inputTokens FROM token_usage').all()
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].provider, 'unknown')
+  assert.equal(rows[0].model, 'unknown')
+  assert.equal(rows[0].inputTokens, 50)
+
+  // 有 request/header:chunk 归到 header 路线。
+  ledger.fold('s2', [
+    headerEvent(1, 'deepseek-official', 'deepseek-v4-pro', '2026-08-17T06:00:00Z'),
+    { seq: 2, time: Date.parse('2026-08-17T06:01:00Z'), type: 'assistant/chunk', data: { turn: 1, step: 0, chunk: { type: 'usage', usage: { inputTokens: 7, outputTokens: 0 } } } },
+  ])
+  rows = ledger.db.prepare('SELECT provider, model, inputTokens FROM token_usage WHERE sessionId = ?').all('s2')
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].provider, 'deepseek-official')
+  assert.equal(rows[0].model, 'deepseek-v4-pro')
 }))
 
-test('Ledger.sumRange / sumDays', () => withTemp(path => {
-  const ledger = new Ledger(defaultConfig(), {
-    '2026-08-10': { date: '2026-08-10', input: 1, output: 0, cacheRead: 0, cacheWrite: 0, calls: 1, cost: 0, sessions: [] },
-    '2026-08-15': { date: '2026-08-15', input: 2, output: 0, cacheRead: 0, cacheWrite: 0, calls: 1, cost: 0, sessions: [] },
-    '2026-08-20': { date: '2026-08-20', input: 4, output: 0, cacheRead: 0, cacheWrite: 0, calls: 1, cost: 0, sessions: [] },
-  }, path)
-  assert.equal(ledger.sumRange('2026-08-10', '2026-08-15').input, 3)
-  assert.equal(ledger.sumDays('2026-08').input, 7)
-  assert.equal(ledger.sumDays(undefined).input, 7)
+test('Ledger.fold: 非法 token 归一化为 0,仍计一次调用', () => withTemp(({ ledger }) => {
+  ledger.fold('s1', [
+    usageEvent(1, 1, 0, { inputTokens: -5, outputTokens: Number.NaN, cacheReadTokens: 'x' }, 'deepseek-official', 'deepseek-v4-flash', '2026-08-17T12:00:00Z'),
+  ])
+  const rows = ledger.db.prepare('SELECT * FROM token_usage').all()
+  assert.equal(rows.length, 1) // 调用次数恒 +1,保留该行
+  assert.equal(rows[0].inputTokens, 0)
+  assert.equal(rows[0].outputTokens, 0)
+  assert.equal(rows[0].requests, 1)
+  // 非全零但个别非法桶 → 归一化。
+  ledger.fold('s2', [
+    usageEvent(1, 1, 0, { inputTokens: -5, outputTokens: 3, cacheReadTokens: 'x' }, 'deepseek-official', 'deepseek-v4-flash', '2026-08-17T12:00:00Z'),
+  ])
+  const single = ledger.db.prepare('SELECT * FROM token_usage WHERE sessionId = ?').all('s2')
+  assert.equal(single.length, 1)
+  assert.equal(single[0].outputTokens, 3)
+  assert.equal(single[0].inputTokens, 0)
 }))
 
-test('Ledger.prune: 保留最近 historyDays 天', () => withTemp(path => {
-  const ledger = new Ledger(defaultConfig(), {}, path)
+test('Ledger.fold: 成本按生效币种计费并落 currency 列', () => withTemp(({ ledger }) => {
+  ledger.config.locale = 'zh'
+  ledger.fold('s1', [
+    usageEvent(1, 1, 0, { inputTokens: 1_000_000, outputTokens: 0 }, 'deepseek-official', 'deepseek-v4-flash', '2026-08-17T12:00:00Z'),
+  ])
+  const row = ledger.db.prepare('SELECT cost, currency FROM token_usage').get()
+  assert.equal(row.currency, 'cny')
+  // 1M tokens 未命中 × 人民币空闲价 1.5 元。
+  assert.ok(Math.abs(row.cost - 1.5) < 1e-9, `expected ~1.5, got ${row.cost}`)
+}))
+
+test('Ledger.fold: en 语言按美元表计费', () => withTemp(({ ledger }) => {
+  ledger.config.locale = 'en'
+  ledger.fold('s1', [
+    usageEvent(1, 1, 0, { inputTokens: 1_000_000, outputTokens: 0 }, 'deepseek-official', 'deepseek-v4-flash', '2026-08-17T12:00:00Z'),
+  ])
+  const row = ledger.db.prepare('SELECT cost, currency FROM token_usage').get()
+  assert.equal(row.currency, 'usd')
+  assert.ok(Math.abs(row.cost - 0.22) < 1e-9, `expected ~0.22, got ${row.cost}`)
+}))
+
+test('Ledger.usageSummary: 总计/按天/会话列表 + 提供方与模型筛选', () => withTemp(({ ledger }) => {
+  ledger.fold('s1', [
+    usageEvent(1, 1, 0, { inputTokens: 1000, outputTokens: 100 }, 'deepseek-official', 'deepseek-v4-flash', '2026-08-17T02:00:00Z'),
+    usageEvent(2, 2, 0, { inputTokens: 500, outputTokens: 50 }, 'deepseek-official', 'deepseek-v4-pro', '2026-08-18T02:00:00Z'),
+  ])
+  ledger.fold('s2', [
+    usageEvent(1, 1, 0, { inputTokens: 200, outputTokens: 20 }, 'opencode', 'gpt-5', '2026-08-19T03:00:00Z'),
+  ])
+
+  const all = ledger.usageSummary({})
+  assert.equal(all.totals.input, 1700)
+  assert.equal(all.totals.calls, 3)
+  assert.equal(all.byDay.length, 3)
+  assert.equal(all.sessions.length, 2)
+  assert.equal(all.sessions[0].id, 's2') // 日期倒序(08-19 在前)
+
+  // 提供方筛选。
+  const deep = ledger.usageSummary({ providers: ['deepseek-official'] })
+  assert.equal(deep.totals.input, 1500)
+  assert.equal(deep.sessions.length, 1)
+  assert.equal(deep.sessions[0].id, 's1')
+
+  // 模型筛选。
+  const flash = ledger.usageSummary({ models: ['deepseek-v4-flash'] })
+  assert.equal(flash.totals.input, 1000)
+  assert.equal(flash.byDay.length, 1)
+
+  // 时间范围筛选。
+  const day18 = ledger.usageSummary({ range: { start: '2026-08-18', end: '2026-08-18' } })
+  assert.equal(day18.totals.input, 500)
+  assert.equal(day18.byDay.length, 1)
+  assert.equal(day18.byDay[0].date, '2026-08-18')
+}))
+
+test('Ledger.prune: 保留最近 historyDays 天', () => withTemp(({ ledger }) => {
   ledger.config.historyDays = 7
+  const today = localDayKey(Date.now())
+  const base = new Date(today + 'T00:00:00')
   for (let i = 0; i < 30; i += 1) {
-    const date = `2026-07-${String(i + 1).padStart(2, '0')}`
-    ledger.days[date] = { date, input: 1, output: 0, cacheRead: 0, cacheWrite: 0, calls: 1, cost: 0, sessions: [] }
+    const d = new Date(base.getTime() - i * 86_400_000)
+    const day = localDayKey(d.getTime())
+    ledger.db.prepare(
+      'INSERT INTO token_usage (sessionId, day, provider, model, inputTokens, requests, cost, currency) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    ).run(`s${i}`, day, 'p', 'm', 1, 1, 0, 'usd')
   }
   ledger.prune()
-  assert.equal(Object.keys(ledger.days).length, 7)
-  assert.equal(Object.keys(ledger.days).sort()[0], '2026-07-24')
+  const count = ledger.db.prepare('SELECT COUNT(*) AS n FROM token_usage').get()
+  assert.equal(count.n, 7)
 }))
 
-test('Ledger 原子写落盘往返', () => withTemp(path => {
-  const ledger = new Ledger(defaultConfig(), {}, path)
-  ledger.account({ input: 100, output: 0, cacheRead: 0, cacheWrite: 0 }, 'deepseek-v4-flash', 's1', Date.parse('2026-08-17T00:00:00Z'))
+test('Ledger.fold: 增量续扫不重算旧事件,切语言不回改历史成本', () => withTemp(({ ledger }) => {
+  ledger.config.locale = 'en'
+  ledger.fold('s1', [usageEvent(1, 1, 0, { inputTokens: 1_000_000 }, 'deepseek-official', 'deepseek-v4-flash', '2026-08-17T12:00:00Z')])
+  // 第二次续扫:新事件 seq=2。
+  ledger.fold('s1', [usageEvent(2, 2, 0, { inputTokens: 500_000 }, 'deepseek-official', 'deepseek-v4-flash', '2026-08-17T13:00:00Z')])
+  const row = ledger.db.prepare('SELECT inputTokens, cost FROM token_usage').get()
+  assert.equal(row.inputTokens, 1_500_000)
+  // 1M×$0.22 + 0.5M×$0.22 = 0.33(同一档 → 累计线性)。
+  assert.ok(Math.abs(row.cost - 0.33) < 1e-9, `expected ~0.33, got ${row.cost}`)
+}))
+
+test('Ledger 原子写落盘往返(配置)', () => withTemp(({ ledger, configPath }) => {
   ledger.pendingWrite = true
   ledger.flush()
-  const parsed = JSON.parse(readFileSync(path, 'utf8'))
+  const parsed = JSON.parse(readFileSync(configPath, 'utf8'))
   assert.equal(parsed.version, 1)
-  assert.equal(parsed.days['2026-08-17'].input, 100)
   assert.equal(parsed.config.locale, 'auto')
   assert.ok(parsed.config.providers !== undefined)
   // 新键用默认值补齐。
-  const reopened = new Ledger(defaultConfig(), {}, path)
-  reopened.config = Object.assign({}, defaultConfig(), parsed.config)
-  assert.equal(reopened.config.prices.usd.models['deepseek-v4-flash'].cacheMiss, 0.22)
-  assert.equal(reopened.config.prices.cny.models['deepseek-v4-flash'].cacheMiss, 1.5)
+  assert.equal(parsed.config.prices.usd.models['deepseek-v4-flash'].cacheMiss, 0.22)
+  assert.equal(parsed.config.prices.cny.models['deepseek-v4-flash'].cacheMiss, 1.5)
+}))
+
+test('Ledger.openAt: 旧单表 prices 迁移为双表', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-monitor-test-'))
+  const configPath = join(dir, 'ledger.json')
+  const legacy = defaultConfig()
+  legacy.prices = { models: { deepseek: { cacheHit: 0.1, cacheMiss: 0.2, output: 0.3 } }, default: { cacheHit: 0.1, cacheMiss: 0.2, output: 0.3 } }
+  writeFileSync(configPath, JSON.stringify({ version: 1, config: legacy }), 'utf8')
+  try {
+    const config = Ledger.readConfig(configPath)
+    assert.ok(config.prices.usd.models.deepseek !== undefined)
+    assert.ok(config.prices.cny.models['deepseek-v4-flash'] !== undefined)
+    assert.equal(config.prices.usd.models.deepseek.cacheMiss, 0.2)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('Ledger.resetUsage: 丢弃用量表,配置不受影响', () => withTemp(({ ledger }) => {
+  ledger.fold('s1', [usageEvent(1, 1, 0, { inputTokens: 10 }, 'deepseek-official', 'deepseek-v4-flash', '2026-08-17T12:00:00Z')])
+  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM token_usage').get().n, 1)
+  ledger.resetUsage()
+  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM token_usage').get().n, 0)
+  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM sweep_progress').get().n, 0)
+  assert.ok(ledger.config.prices.usd.models['deepseek-v4-flash'] !== undefined)
 }))
 
 test('applyConfigPatch: 追加 deepseek / opencode / custom 提供方配置', () => {
@@ -100,9 +229,7 @@ test('applyConfigPatch: 追加 deepseek / opencode / custom 提供方配置', ()
   const { config, errors } = applyConfigPatch(current, {
     providers: {
       deepseek: { enabled: true, preset: 'deepseek', refreshMinutes: 5, apiKey: '' },
-      ops: {
-        enabled: true, preset: 'opencode', refreshMinutes: 15, apiKey: '',
-      },
+      ops: { enabled: true, preset: 'opencode', refreshMinutes: 15, apiKey: '' },
       custom1: {
         enabled: true, preset: 'custom', refreshMinutes: 10, apiKey: 'k',
         custom: {
@@ -123,21 +250,16 @@ test('applyConfigPatch: 追加 deepseek / opencode / custom 提供方配置', ()
 
 test('applyConfigPatch: 非法补丁整体拒绝', () => {
   const current = defaultConfig()
-  // 未知键
   assert.ok(applyConfigPatch(current, { nope: 1 }).errors.length > 0)
-  // custom 预设缺 url
   assert.ok(applyConfigPatch(current, {
     providers: { x: { enabled: true, preset: 'custom', refreshMinutes: 5, apiKey: '', custom: { url: '', headers: {}, items: [{ key: 'a', label: 'A', kind: 'number', path: 'a', maxPath: null, resetsAtPath: null }] } } },
   }).errors.length > 0)
-  // custom items 缺失
   assert.ok(applyConfigPatch(current, {
     providers: { x: { enabled: true, preset: 'custom', refreshMinutes: 5, apiKey: '', custom: { url: 'https://x', headers: {}, items: [] } } },
   }).errors.length > 0)
-  // 非法 preset
   assert.ok(applyConfigPatch(current, {
     providers: { x: { enabled: true, preset: 'flyio', refreshMinutes: 5, apiKey: '' } },
   }).errors.length > 0)
-  // 非对象补丁
   assert.ok(applyConfigPatch(current, 42).errors.length > 0)
 })
 
@@ -156,7 +278,6 @@ test('applyConfigPatch: prices 子表(models)整表替换语义', () => {
   })
   assert.deepEqual(errors, [])
   assert.deepEqual(Object.keys(config.prices.usd.models), ['deepseek-v4-flash'])
-  // cny 子表不受影响。
   assert.ok(config.prices.cny.models['deepseek-v4-flash'] !== undefined)
 })
 
@@ -165,7 +286,6 @@ test('applyConfigPatch: 双表各自校验,单侧非法整体拒绝', () => {
   assert.ok(applyConfigPatch(current, {
     prices: { cny: { models: { 'deepseek-v4-flash': null } } },
   }).errors.length > 0)
-  // default 非法也应拒绝。
   assert.ok(applyConfigPatch(current, {
     prices: { cny: { models: {}, default: { nope: 1 } } },
   }).errors.length > 0)
@@ -173,52 +293,3 @@ test('applyConfigPatch: 双表各自校验,单侧非法整体拒绝', () => {
     prices: { usd: { models: {}, default: { cacheHit: 0.1, cacheMiss: 0.2, output: 0.3 } } },
   }).errors.length === 0)
 })
-
-test('Ledger.account: 成本按生效币种记录并带 currency 标记', () => withTemp(path => {
-  const config = defaultConfig()
-  config.locale = 'zh' // 中文 → 人民币计费
-  const ledger = new Ledger(config, {}, path)
-  ledger.account({ input: 1_000_000, output: 0, cacheRead: 0, cacheWrite: 0 }, 'deepseek-v4-flash', 's1', Date.parse('2026-08-17T12:00:00Z'))
-  const day = ledger.days['2026-08-17']
-  assert.equal(day.currency, 'cny')
-  assert.equal(day.sessions[0].currency, 'cny')
-  // 1M tokens 未命中 × 人民币空闲价 1.5 元。
-  assert.ok(Math.abs(day.cost - 1.5) < 1e-9, `expected cny cost ~1.5, got ${day.cost}`)
-}))
-
-test('Ledger.account: en 语言按美元表计费', () => withTemp(path => {
-  const config = defaultConfig()
-  config.locale = 'en'
-  const ledger = new Ledger(config, {}, path)
-  ledger.account({ input: 1_000_000, output: 0, cacheRead: 0, cacheWrite: 0 }, 'deepseek-v4-flash', 's1', Date.parse('2026-08-17T12:00:00Z'))
-  const day = ledger.days['2026-08-17']
-  assert.equal(day.currency, 'usd')
-  assert.ok(Math.abs(day.cost - 0.22) < 1e-9, `expected usd cost ~0.22, got ${day.cost}`)
-}))
-
-test('Ledger.open: 旧单表 prices 迁移为双表', () => withTemp(path => {
-  const legacy = defaultConfig()
-  legacy.prices = { models: { deepseek: { cacheHit: 0.1, cacheMiss: 0.2, output: 0.3 } }, default: { cacheHit: 0.1, cacheMiss: 0.2, output: 0.3 } }
-  delete legacy.currency
-  delete legacy.symbol
-  delete legacy.exchangeRate
-  const dir = join(tempPath().dir, 'home')
-  mkdirSync(dir)
-  const ledgerPath = join(dir, 'storages', 'dsh-monitor', 'ledger.json')
-  mkdirSync(join(dir, 'storages', 'dsh-monitor'), { recursive: true })
-  writeFileSync(ledgerPath, JSON.stringify({ version: 1, config: legacy, days: {} }), 'utf8')
-
-  const oldHome = process.env.DSH_HOME
-  process.env.DSH_HOME = dir
-  let restored
-  try {
-    restored = Ledger.open()
-  } finally {
-    if (oldHome === undefined) delete process.env.DSH_HOME
-    else process.env.DSH_HOME = oldHome
-  }
-  assert.ok(restored.config.prices.usd.models.deepseek !== undefined)
-  assert.ok(restored.config.prices.cny.models['deepseek-v4-flash'] !== undefined)
-  // 旧 USD 表保留 deepseek 模型(不丢数据)。
-  assert.equal(restored.config.prices.usd.models.deepseek.cacheMiss, 0.2)
-}))

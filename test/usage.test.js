@@ -289,3 +289,17 @@ test('monitor 服务:listCatalog 在无 llm 服务时返回空目录', async () 
   const catalog = await service.listCatalog()
   assert.deepEqual(catalog, { providers: [], models: [] })
 })
+
+test('monitor 服务:getUsage 委托账本 usageSummary', async () => {
+  const calls = []
+  const ledger = {
+    config: defaultConfig(),
+    scheduleWrite: () => {},
+    usageSummary: query => { calls.push(query); return { totals: { input: 1 }, byDay: [], sessions: [] } },
+  }
+  const service = createService(makeCtx(), ledger)
+  const result = await service.getUsage({ range: { start: '2026-08-01' } })
+  assert.equal(result.totals.input, 1)
+  assert.equal(calls.length, 1)
+  assert.deepEqual(calls[0], { range: { start: '2026-08-01' } })
+})
