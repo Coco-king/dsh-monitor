@@ -47,10 +47,10 @@
 ```
 DSH 会话日志(事实)                        SQLite 账本(投影)
 ┌─────────────────────┐   每个会话一条     ┌──────────────────────────────┐
-│ listSnapshots()     │ ──checkpoint──▶  │ meta / checkpoints           │
-│ readFrom(id, seq)   │  增量折叠(60s)    │ session_rollups              │
+│ listSnapshots()     │ ──进度表──▶      │ ledger_meta / sweep_progress │
+│ readFrom(id, seq)   │  增量折叠(60s)    │ token_usage                 │
 │   → {meta, events}  │ ───────────────▶ │ (sessionId,day,provider,model)│
-└─────────────────────┘  事件→rollup 行   └──────────────┬───────────────┘
+└─────────────────────┘  事件→usage 行    └──────────────┬───────────────┘
                                                         │ GROUP BY / index
                                                         ▼
                                           monitor.getUsage(RPC) → 客户端图表
@@ -64,15 +64,23 @@ DSH 会话日志(事实)                        SQLite 账本(投影)
 
 ## 数据模型(SQLite,schema 版本 1)
 
+表名按本项目语境命名(不照搬 TokenLedger),三张表:
+
+| 表名 | 通俗含义 |
+|---|---|
+| `token_usage` | 用量统计主表:每个会话、每天、每个提供方、每个模型用了多少 token 与费用 |
+| `sweep_progress` | 记账扫描进度:每个会话扫到哪个事件了(增量续扫 / 日志没变就跳过) |
+| `ledger_meta` | 账本元信息(schema 版本等) |
+
 ```sql
 PRAGMA journal_mode = WAL;
 
-CREATE TABLE IF NOT EXISTS meta (
+CREATE TABLE IF NOT EXISTS ledger_meta (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS session_rollups (
+CREATE TABLE IF NOT EXISTS token_usage (
   sessionId        TEXT    NOT NULL,
   day              TEXT    NOT NULL,   -- 本地日历 YYYY-MM-DD
   provider         TEXT    NOT NULL,   -- DSH provider 路由名;未知 = 'unknown'
@@ -87,10 +95,10 @@ CREATE TABLE IF NOT EXISTS session_rollups (
   PRIMARY KEY (sessionId, day, provider, model)
 ) WITHOUT ROWID;
 
-CREATE INDEX IF NOT EXISTS idx_rollups_day  ON session_rollups (day);
-CREATE INDEX IF NOT EXISTS idx_rollups_route ON session_rollups (provider, model, day);
+CREATE INDEX IF NOT EXISTS idx_usage_day   ON token_usage (day);
+CREATE INDEX IF NOT EXISTS idx_usage_route ON token_usage (provider, model, day);
 
-CREATE TABLE IF NOT EXISTS checkpoints (
+CREATE TABLE IF NOT EXISTS sweep_progress (
   sessionId   TEXT PRIMARY KEY,
   consumedSeq INTEGER NOT NULL,        -- 已消费到的事件 seq
   logRevision TEXT,                    -- 日志修订(未变则跳过)
@@ -120,16 +128,16 @@ CREATE TABLE IF NOT EXISTS checkpoints (
 ### 写入(替换语义,无污染)
 
 `commitSession(sessionId, state)` 单事务:
-1. `DELETE FROM session_rollups WHERE sessionId = ?`;
+1. `DELETE FROM token_usage WHERE sessionId = ?`;
 2. 写该会话新折叠出的全部行(全零行跳过);
-3. upsert checkpoint(`consumedSeq` / `logRevision` / `cursor`)。
+3. upsert `sweep_progress`(`consumedSeq` / `logRevision` / `cursor`)。
 
 **一个会话内切换模型** → 不同 `(provider, model)` 各自成行,费用/token/次数各归其行,
 `GROUP BY provider, model` 全部切分准确。
 
 ### 文件位置与配置边界
 
-- 账本:`$DSH_HOME/storages/dsh-monitor/ledger.sqlite`(沿用现有目录,
+- 账本:`$DSH_HOME/storages/dsh-monitor/ledger.sqlite`(与现有 `ledger.json` 同目录,
   `dshHomePath('storages/dsh-monitor/ledger.sqlite')`)。
 - **配置仍留 `ledger.json`**(价格表/峰谷/提供方/历史天数):applyConfigPatch 校验、
   `getConfig/updateConfig` RPC、价格同步逻辑零改动,55 个现有测试大部分不受影响。
@@ -149,9 +157,9 @@ response: {
 }
 ```
 
-- 实现:`session_rollups` 上按 `day BETWEEN` + `provider IN` + `model IN` 过滤,
+- 实现:`token_usage` 上按 `day BETWEEN` + `provider IN` + `model IN` 过滤,
   `GROUP BY`。会话列表 `GROUP BY sessionId`,取该会话涉及的 provider/model 与
-  `MAX(day)`(日期列),按 `lastUsageAt`(checkpoints)倒序。
+  `MAX(day)`(日期列),按 `lastUsageAt`(`sweep_progress`)倒序。
 - 筛选同时作用于按天柱形与会话列表(与会话行匹配的 `provider`/`model`)。
 
 ## UI(设置 → 用量 →「用量汇总」分区)
@@ -171,7 +179,7 @@ response: {
 
 - `lib/store.js`:重写 `Ledger` 为 SQLite 驱动——保留 `getConfig/applyConfigPatch`
   及 config 持久化(JSON 文件),账本数据(`account` 路径)改为折叠写入
-  `session_rollups`;新增 `sweep`/`commitSession`/`usageSummary`/`reset`;
+  `token_usage`;新增 `sweep`/`commitSession`/`usageSummary`/`reset`;
   `Ledger.open` 建库建表 + schema 版本管理。`node:sqlite`(DatabaseSync)同步 API,
   与 TokenLedger 用法一致。
 - 新增 `lib/fold.js`:从 `sessionPersistence` 读事件尾巴,折叠进会话状态
