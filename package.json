@@ -35,6 +35,7 @@
     "lib/pricing.js",
     "lib/typert.host.js",
     "lib/client.js",
+    "lib/fold.js",
     "lib/client-src",
     "scripts",
     "cordis.patch.yml",
