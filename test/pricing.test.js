@@ -103,6 +103,26 @@ test('normalizePrice: 保留规范窗口', () => {
   assert.deepEqual(e.windows, { peak: [{ start: 1, end: 4 }] })
 })
 
+test('tierFor: 模型级峰谷开关关闭时恒用基础价(即使高峰时段)', () => {
+  const e = { cacheHit: 1, cacheMiss: 2, output: 3, offPeak: { cacheHit: 10, cacheMiss: 20, output: 30 }, peak: { cacheHit: 100, cacheMiss: 200, output: 300 }, peakEnabled: false }
+  const inPeak = tierFor(e, Date.parse('2026-08-17T02:00:00Z'), peak())
+  assert.deepEqual(inPeak, { cacheHit: 1, cacheMiss: 2, output: 3 })
+  const offPeak = tierFor(e, Date.parse('2026-08-17T12:00:00Z'), peak())
+  assert.deepEqual(offPeak, { cacheHit: 1, cacheMiss: 2, output: 3 })
+})
+
+test('tierFor: 显式开启开关(peakEnabled true)或未定义时维持峰谷计费', () => {
+  const on = { cacheHit: 1, cacheMiss: 2, output: 3, offPeak: { cacheHit: 10, cacheMiss: 20, output: 30 }, peak: { cacheHit: 100, cacheMiss: 200, output: 300 }, peakEnabled: true }
+  assert.deepEqual(tierFor(on, Date.parse('2026-08-17T02:00:00Z'), peak()), { cacheHit: 100, cacheMiss: 200, output: 300 })
+  const undef = { cacheHit: 1, cacheMiss: 2, output: 3, offPeak: { cacheHit: 10, cacheMiss: 20, output: 30 }, peak: { cacheHit: 100, cacheMiss: 200, output: 300 } }
+  assert.deepEqual(tierFor(undef, Date.parse('2026-08-17T02:00:00Z'), peak()), { cacheHit: 100, cacheMiss: 200, output: 300 })
+})
+
+test('normalizePrice: 保留 peakEnabled 布尔', () => {
+  assert.equal(normalizePrice({ cacheHit: 0.007, cacheMiss: 0.22, output: 0.66, peakEnabled: false }).peakEnabled, false)
+  assert.equal(normalizePrice({ cacheHit: 0.007, cacheMiss: 0.22, output: 0.66, peakEnabled: true }).peakEnabled, true)
+})
+
 test('isPeakHour: 窗口边界半开', () => {
   const atMs = ts => Date.parse(ts)
   assert.equal(isPeakHour(atMs('2026-08-17T01:00:00Z'), 0, DEFAULT_PEAK_WINDOWS), true)

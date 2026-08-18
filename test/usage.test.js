@@ -232,7 +232,9 @@ test('monitor 服务:deepseek-official 内置自动(无需配置也直接查余�
     const usage = await service.getProviderUsage('deepseek-official')
     assert.equal(usage.status, 'ok')
     assert.equal(usage.preset, 'deepseek')
-    assert.equal(usage.items.length, 3)
+    assert.equal(usage.items.length, 1)
+    assert.equal(usage.items[0].key, 'balance-total')
+    assert.equal(usage.items[0].label, '余额')
     assert.equal(usage.items[0].value, 66)
   } finally {
     mock.restoreAll()
