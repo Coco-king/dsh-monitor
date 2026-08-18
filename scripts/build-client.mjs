@@ -52,7 +52,8 @@ function bundleOptions(plugins) {
 
 /** 输出文本 → 注入 BUILD_TAG + 落盘 + 自检。 */
 function finalize(result) {
-  const file = result.outputFiles.find(f => f.path === OUT || f.path.endsWith('/' + OUT))
+  // Windows 上 esbuild 返回反斜杠绝对路径,统一成正斜杠再比。
+  const file = result.outputFiles.find(f => f.path === OUT || f.path.replaceAll('\\', '/').endsWith('/' + OUT))
   if (file === undefined) throw new Error('build: no output file')
   const text = file.text
   const tag = createHash('sha1').update(text).digest('hex').slice(0, 7)
