@@ -44,7 +44,8 @@
   "scripts": {
     "test": "node --test",
     "build:client": "node scripts/build-client.mjs",
-    "dev:client": "node scripts/build-client.mjs --watch"
+    "dev:client": "node scripts/build-client.mjs --watch",
+    "release": "node scripts/release.mjs"
   },
   "dependencies": {
     "@deepseek-ai/dsh-credentials": "^0.1.0-rc.6",

@@ -35,3 +35,19 @@
 2. 新文案中英成对。
 3. `npm test` 全绿。
 4. bundle 已重建且包含最新更改。
+
+## 版本发布(仅限用户明确要求)
+
+- **铁律:仅当用户明确要求升级版本时才执行发版;AI 代理不得自行改版本号、打 tag 或推送发布提交。**
+- 命令:
+  - 正式发布:`npm run release -- <X.Y.Z>`,如 `npm run release -- 0.1.1`。
+  - 预演(只打印计划,不改文件、不推送):`npm run release -- <X.Y.Z> --dry-run`。
+- 脚本 `scripts/release.mjs` 自动完成:
+  1. 校验:参数是语义化版本且**严格高于**当前 `package.json` 版本;工作区干净;位于 `master` 分支。
+  2. 先跑 `npm test` 与 `npm run build:client`,全绿才继续。
+  3. 同步版本号:`package.json` + `package-lock.json`(顶层与 `packages[""]`)。
+  4. 重写 `README.md` / `README.zh-CN.md` 安装命令的钉定版本(GitHub 与 Gitee 两行,`#vX.Y.Z`,无号则插入)——保证「README 版本 = 最新 tag」。
+  5. 提交 `release: vX.Y.Z` → 打 tag `vX.Y.Z` → `git push origin master` 与 `git push origin vX.Y.Z`,并打印带版本号的安装命令。
+- 版本约定:唯一版本源 = `package.json` 的 `version`;tag 统一 `vX.Y.Z`;README 展示精确钉定版本,`#semver:^X.Y` 只作给用户的可选备注,不在 README 正文使用。
+- 发版前自查:tag 必须打在包含最新代码且 `npm test` 全绿的 commit 上;git 安装按 `package.json` 的 `files` 白名单打包,发布前确认 `files` 覆盖全部被 import 的 lib 文件(教训:曾漏 `lib/fold.js` 导致启动 `ERR_MODULE_NOT_FOUND`)。
+- Gitee 为手动镜像,脚本只负责 GitHub(origin);要同步 Gitee 的用户自行推 tag。
