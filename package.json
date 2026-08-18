@@ -30,6 +30,7 @@
     "lib/projection.js",
     "lib/queries.js",
     "lib/monitor.js",
+    "lib/provider-alias.js",
     "lib/store.js",
     "lib/pricing.js",
     "lib/typert.host.js",

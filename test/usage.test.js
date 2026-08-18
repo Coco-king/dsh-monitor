@@ -248,6 +248,69 @@ test('monitor 服务:内置 deepseek 可被显式配置覆盖(如停用)', async
   assert.equal(usage.status, 'off')
 })
 
+test('provider-alias:modlens 变体 id 归一化回本体', async () => {
+  const { baseProviderId } = await import('../lib/provider-alias.js')
+  assert.equal(baseProviderId('deepseek-modlens'), 'deepseek-official')
+  assert.equal(baseProviderId('modlens-zai'), 'zai')
+  assert.equal(baseProviderId('deepseek-official'), 'deepseek-official')
+  assert.equal(baseProviderId('zai'), 'zai')
+  assert.equal(baseProviderId('my-vision'), 'my-vision')
+})
+
+test('monitor 服务:deepseek-modlens 变体回退本体内置余额', async () => {
+  mockFetchJson(200, {
+    balance_infos: [{ currency: 'CNY', total_balance: '66', granted_balance: '10', topped_up_balance: '56' }],
+  })
+  try {
+    // providers 为空：deepseek-modlens 未配置，应回退本体 deepseek-official 的内置余额查询。
+    const service = createService(makeCtx(), { config: configWithProviders({}), scheduleWrite: () => {} })
+    const usage = await service.getProviderUsage('deepseek-modlens')
+    assert.equal(usage.status, 'ok')
+    assert.equal(usage.preset, 'deepseek')
+    assert.equal(usage.items.length, 1)
+    assert.equal(usage.items[0].key, 'balance-total')
+    assert.equal(usage.items[0].value, 66)
+  } finally {
+    mock.restoreAll()
+  }
+})
+
+test('monitor 服务:modlens-<upstream> 变体回退本体已配置的自定义查询', async () => {
+  mockFetchJson(200, { usage: { tokens: 250 } })
+  try {
+    const providers = { zai: {
+      enabled: true, preset: 'custom', refreshMinutes: 5, apiKey: '',
+      custom: { url: 'https://zai.example/usage', headers: {}, items: [{ key: 'tokens', label: 'Tokens', kind: 'number', path: 'usage.tokens', maxPath: 1000, resetsAtPath: null }] },
+    } }
+    const service = createService(makeCtx(), { config: configWithProviders(providers), scheduleWrite: () => {} })
+    const usage = await service.getProviderUsage('modlens-zai')
+    assert.equal(usage.status, 'ok')
+    assert.equal(usage.provider, 'zai')
+    const tokens = usage.items.find(it => it.key === 'tokens')
+    assert.equal(tokens.value, 250)
+    // 请求确实打到本体 zai 配置的 URL。
+    assert.equal(globalThis.fetch.mock.calls[0].arguments[0], 'https://zai.example/usage')
+  } finally {
+    mock.restoreAll()
+  }
+})
+
+test('monitor 服务:变体自身有显式配置时优先(不覆盖)', async () => {
+  const providers = { 'deepseek-modlens': {
+    enabled: false, preset: 'deepseek', refreshMinutes: 5, apiKey: '',
+  } }
+  const service = createService(makeCtx(), { config: configWithProviders(providers), scheduleWrite: () => {} })
+  const usage = await service.getProviderUsage('deepseek-modlens')
+  // 变体已自行配置并停用：不回退本体。
+  assert.equal(usage.status, 'off')
+})
+
+test('monitor 服务:modlens 变体本体也未配置时仍报 off', async () => {
+  const service = createService(makeCtx(), { config: configWithProviders({}), scheduleWrite: () => {} })
+  const usage = await service.getProviderUsage('modlens-unmapped')
+  assert.equal(usage.status, 'off')
+})
+
 test('monitor 服务:listCatalog 读取设置→模型 目录(提供方+模型)', async () => {
   const llm = {
     listConfigurableProviders: () => [
