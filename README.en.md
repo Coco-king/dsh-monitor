@@ -6,7 +6,7 @@ Session billing and per-provider usage quota plugin for DeepSeek Harness.
 - **Provider usage panel**: configure one usage query per model provider; click the usage icon left of the model switcher to view the quota of the **current session's provider**.
 - **Three presets**:
   - **DeepSeek official** (built-in): reuses the API key configured in Settings → Models and queries the official `GET /user/balance` ([docs](https://api-docs.deepseek.com/zh-cn/api/get-user-balance); only `api.deepseek.com`, non-official endpoints refused). **No configuration needed** — when the current session's provider is `deepseek-official`, the balance shows automatically; add a provider with the same id only to override the refresh interval.
-  - **OpenCode**: queries the OpenCode Go plan quota — **rolling 5 hours / weekly / monthly** usage percent and reset times (`opencode.ai/zen/go/v1/usage`).
+  - **OpenCode**: queries the OpenCode Go plan quota — **5 hours / weekly / monthly** usage percent and reset times (`opencode.ai/zen/go/v1/usage`).
   - **Custom**: any HTTP usage endpoint — URL + headers (with `{apiKey}` placeholder) + JSON paths, displayed item by item (percent / number / money / text, optional max and reset time).
 - **Official price sync**: one-click sync of the price table and peak windows from the DeepSeek official pricing page; deepseek-v4-flash / deepseek-v4-pro are bundled as defaults.
 

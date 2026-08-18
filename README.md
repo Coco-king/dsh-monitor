@@ -6,7 +6,7 @@ DeepSeek Harness 会话计费 + 通用提供方用量查询插件。
 - **提供方用量面板**：按模型提供方配置用量查询（每个提供方一条配置），在模型切换器左侧的用量图标处点击查看**当前会话所用提供方**的额度。
 - **三种预设**：
   - **DeepSeek 官方**（内置）：复用 设置→模型 中配置的 API Key，直查官方 `GET /user/balance`（[文档](https://api-docs.deepseek.com/zh-cn/api/get-user-balance)，仅发往 `api.deepseek.com`，非官方端点拒绝）。**无需任何配置**——当前会话提供方为 `deepseek-official` 时自动显示余额；如想调整刷新间隔可在设置页添加同名 provider 覆盖。
-  - **OpenCode**：查询 OpenCode Go 套餐额度——**滚动 5 小时 / 本周 / 本月** 用量百分比与重置时间（`opencode.ai/zen/go/v1/usage`）。
+  - **OpenCode**：查询 OpenCode Go 套餐额度——**5小时 / 本周 / 本月** 用量百分比与重置时间（`opencode.ai/zen/go/v1/usage`）。
   - **自定义**：任意 HTTP 用量接口——URL + 请求头（支持 `{apiKey}` 占位）+ JSON 取值路径，逐条展示（percent / number / money / text，可带上限与重置时间）。
 - **官方价格同步**：一键从 DeepSeek 官方定价页同步价格表与峰谷窗口；默认预置 deepseek-v4-flash / deepseek-v4-pro。
 

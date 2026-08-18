@@ -104,7 +104,7 @@ Client（浏览器）
 ```
 
 - **deepseek 预设**：复用 `settings.get('llm-deepseek')` 的 baseURL / apiKeyEnv → 凭证解析（credentials → env）→ 官方域名守卫（仅 `api.deepseek.com`，否则拒绝且不发 Key）→ GET `{base}/user/balance` → 一条目 `余额`（kind money，value = total_balance，子项赠送/充值）。
-- **opencode 预设**：GET `https://opencode.ai/zen/go/v1/usage`，Bearer Key（显式 → 凭证 `OPENCODE_GO_API_KEY` → env `OPENCODE_GO_API_KEY|OPENCODE_API_KEY` → `auth.json` 兜底），浏览器 UA（防 Cloudflare 1010），15s 超时 → 三条目：**滚动 5 小时 / 本周 / 本月**（kind percent，`resetsAt` 显示重置时间）。
+- **opencode 预设**：GET `https://opencode.ai/zen/go/v1/usage`，Bearer Key（显式 → 凭证 `OPENCODE_GO_API_KEY` → env `OPENCODE_GO_API_KEY|OPENCODE_API_KEY` → `auth.json` 兜底），浏览器 UA（防 Cloudflare 1010），15s 超时 → 三条目：**5小时 / 本周 / 本月**（kind percent，`resetsAt` 显示重置时间）。
 - **custom 预设**：`fetch(url, { method: 'GET', headers })`（v1 仅 GET + JSON 响应），按 `items[].path`（点路径）逐条提取；`maxPath: string | number | null`——`number` 为固定上限常量，`string` 为 JSON 路径（指向响应内的上限值），`null` 表示无上限；存在上限时计算 percent = value/max×100；`kind`：percent | number | money | text。
 - 每提供方独立的进程内缓存 `{ fetchedAt, value, inFlight }`：`refreshMinutes` 过期、并发去重、失败落 error 且不阻塞其余字段（照 cost-meter balance 缓存写法）。
 - 状态分级：`off`（未配置 Key / 无订阅 / 未启用 = 预期场景，中性提示）| `error`（网络/HTTP/解析失败，红色提示）| `ok`。
