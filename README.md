@@ -26,9 +26,73 @@ The package declares `dsh.bundle.patch`, so it joins the web profile's bundle la
 ## Usage
 
 1. **Configure providers**: Settings → Usage → Provider usage config → Add provider. **The provider ID is a dropdown** — candidates are the providers configured in Settings → Models plus the providers you already configured here (including custom ones). Pick a preset and fill the fields, then save. **DeepSeek official is built-in and needs no configuration** — only add a provider for OpenCode, Custom, or to override the DeepSeek refresh interval.
+
+   ![Provider usage binding dialog](docs/screenshots/provider-binding-dialog.png)
+
+   > Chinese-UI screenshot — no English capture yet.
+
 2. **View usage**: click the gauge icon left of the model switcher in the composer. The panel shows the current session provider's quota: provider name + preset badge in the header, refresh icon on the top right.
+   - **DeepSeek official balance** (built-in, queries `api.deepseek.com` directly):
+
+     ![DeepSeek official balance](docs/screenshots/provider-usage-deepseek.png)
+
+     > Chinese-UI screenshot — no English capture yet.
+
+   - **OpenCode Go plan** (5-hour / weekly / monthly progress):
+
+     ![OpenCode plan usage](docs/screenshots/provider-usage-opencode.png)
+
+     > Chinese-UI screenshot — no English capture yet.
+
 3. **Session cost**: the session header shows the session cost chip; hover for input/cache/output token details.
+
+   ![Session cost chip](docs/screenshots/session-cost-chip.png)
+
+   > Chinese-UI screenshot — no English capture yet.
+
 4. **Prices**: Settings → Usage → Billing prices — edit prices, **add models via a provider-grouped dropdown of the models configured in Settings → Models**, or sync from the official docs.
+
+   ![Billing prices-English](docs/screenshots/billing-prices-en.png)
+
+5. **Token ledger**: left-side entry `Token Ledger` — shows today / month / cumulative token counts, provider distribution, project distribution, activity heatmap, and per-model breakdown.
+
+   ![Token Ledger-English](docs/screenshots/token-ledger-en.png)
+
+## Configuration flow
+
+End-to-end path from install to first run:
+
+```
+Install
+  └─ dsh plugin --profile web add <repo-url>     ← joins the web profile's bundle layer
+        │
+        ▼
+Settings → Models
+  ├─ "DeepSeek" provider already exists
+  │     └─ Reuses its API key, no extra setup (balance queries api.deepseek.com directly)
+  ├─ "opencode-go" provider already exists
+  │     └─ Click the usage icon left of its edit button → choose OpenCode preset → Save
+  └─ Any third-party provider
+        └─ Click the usage icon → choose "Custom HTTP" → fill URL / Headers / JSON paths → Save
+        │
+        ▼
+Settings → Billing
+  ├─ deepseek-v4-flash / deepseek-v4-pro are bundled by default (both USD and CNY)
+  └─ Edit manually / sync from official docs / add new models from Settings → Models
+        │
+        ▼
+New session → pick a model
+  ├─ Session header shows a live cost chip
+  ├─ Usage icon (left of model switcher) shows the session's provider quota
+  └─ Left-side "Token Ledger" → full breakdown
+```
+
+Notes:
+
+- **DeepSeek official is built-in — works without any binding.** Bindings are mainly for OpenCode, Custom, or overriding the DeepSeek refresh interval.
+- **Two independent price tables are persisted** (USD / CNY); the active currency is determined by the UI language (zh → CNY, otherwise → USD). Official sync updates both.
+- **Each model can declare its own peak/off-peak windows** in UTC. Models with their own windows use them; models with none fall back to the global official windows.
+- **Where the config lives**: `$DSH_HOME/storages/dsh-monitor/ledger.json`, under the `config` key (see the next section).
 
 ## Config model
 

@@ -25,10 +25,66 @@ dsh plugin --profile web add https://gitee.com/kkcoco/dsh-monitor.git#v0.1.1    
 
 ## 使用
 
-1. **配置提供方用量查询**：设置 → 模型，在目标提供方条目的**编辑按钮左侧**点击用量图标（悬浮提示「配置用量查询」），在弹窗里选择查询方式（**DeepSeek 官方余额 / OpenCode Go 套餐 / 自定义 HTTP**）并填写字段后保存——**保存会覆盖该提供方此前的绑定配置**；弹窗底部可「解除绑定」。**DeepSeek 官方为内置，不绑定也可用**——绑定主要用于 OpenCode、自定义或自定义 DeepSeek 刷新间隔。
-2. **查看用量**：输入栏右侧（模型切换器左侧）点击用量图标，面板展示当前会话提供方的额度；头部显示提供方名字与预设徽标，右上角刷新图标强制刷新。
-3. **会话费用**：会话头部显示本会话费用 chip，悬停查看输入/缓存/输出 token 明细。
-4. **价格**：设置 → 计费，配置模型价格（手动编辑 / 从 设置→模型 新增模型 / 从官方文档同步）。
+1. **配置提供方用量查询**:设置 → 模型,在目标提供方条目的**编辑按钮左侧**点击用量图标(悬浮提示「配置用量查询」),在弹窗里选择查询方式(**DeepSeek 官方余额 / OpenCode Go 套餐 / 自定义 HTTP**)并填写字段后保存——**保存会覆盖该提供方此前的绑定配置**;弹窗底部可「解除绑定」。**DeepSeek 官方为内置,不绑定也可用**——绑定主要用于 OpenCode、自定义或自定义 DeepSeek 刷新间隔。
+
+   ![配置用量查询弹窗](docs/screenshots/provider-binding-dialog.png)
+
+2. **查看用量**:输入栏右侧(模型切换器左侧)点击用量图标,面板展示当前会话提供方的额度;头部显示提供方名字与预设徽标,右上角刷新图标强制刷新。
+   - **DeepSeek 官方余额**(内置,直查 `api.deepseek.com`):
+
+     ![DeepSeek 官方余额](docs/screenshots/provider-usage-deepseek.png)
+
+   - **OpenCode Go 套餐**(5 小时 / 本周 / 本月进度):
+
+     ![OpenCode 套餐用量](docs/screenshots/provider-usage-opencode.png)
+
+3. **会话费用**:会话头部显示本会话费用 chip,悬停查看输入/缓存/输出 token 明细。
+
+   ![会话费用 chip](docs/screenshots/session-cost-chip.png)
+
+4. **价格**:设置 → 计费,配置模型价格(手动编辑 / 从 设置→模型 新增模型 / 从官方文档同步)。
+
+   ![计费价格设置-中文](docs/screenshots/billing-prices-zh.png)
+
+5. **用量账本**:左侧导航 「用量账本」 入口,展示今日 / 本月 / 累计 token、提供方分布、项目分布、活跃度热力图、模型详单。
+
+   ![用量账本-中文](docs/screenshots/token-ledger-zh.png)
+
+## 配置流程
+
+从安装到首跑的完整路径:
+
+```
+安装插件
+  └─ dsh plugin --profile web add <repo-url>     ← 加入 web profile 的 bundle 层
+        │
+        ▼
+设置 → 模型
+  ├─ 已存在「DeepSeek」 提供方
+  │     └─ 复用其 API Key,无需任何配置(余额直查 api.deepseek.com)
+  ├─ 已存在「opencode-go」 提供方
+  │     └─ 点击编辑按钮左侧的用量图标,选 OpenCode 套餐预设 → 保存
+  └─ 其他第三方提供方
+        └─ 点击用量图标,选「自定义 HTTP」 → 填 URL / Headers / JSON 路径 → 保存
+        │
+        ▼
+设置 → 计费
+  ├─ 已默认预置 deepseek-v4-flash / deepseek-v4-pro(双币种)
+  └─ 手动调整 / 同步官方 / 从设置→模型新增
+        │
+        ▼
+新会话 → 选择模型
+  ├─ 会话头部实时显示费用 chip
+  ├─ 输入栏左侧用量图标 → 当前会话提供方额度
+  └─ 左侧「用量账本」 → 全量明细
+```
+
+要点:
+
+- **DeepSeek 官方为内置,「不绑定也可用」**;绑定主要是为了 OpenCode / 自定义,或自定义 DeepSeek 刷新间隔。
+- **价格表分两套独立存**(USD / CNY),由界面语言决定生效币种(zh → CNY,其余 → USD);官方同步会同时更新两套。
+- **每个模型可独立设置峰谷窗口**;模型设了自己的窗口就按自己的判定,完全没设才回退到全局官方窗口。
+- **配置落地**:`$DSH_HOME/storages/dsh-monitor/ledger.json` 的 `config` 字段(详见下一节)。
 
 ## 配置模型
 
