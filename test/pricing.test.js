@@ -3,10 +3,8 @@ import assert from 'node:assert/strict'
 import {
   DEFAULT_PRICE_TABLE,
   DEFAULT_PRICE_TABLE_CNY,
-  CNY_LEGACY_BASE_PRICES,
   DEFAULT_PEAK_WINDOWS,
   DEFAULT_PEAK_EFFECTIVE_AT,
-  LEGACY_BASE_BOUNDARY,
   activeCurrency,
   costOf,
   isPeakHour,
@@ -25,11 +23,12 @@ const peak = () => ({
   windows: DEFAULT_PEAK_WINDOWS,
 })
 
-test('tierFor: 峰谷生效前按 legacyBase(历史正确)', () => {
-  const atMs = Date.parse('2026-08-01T12:00:00Z')
-  assert.ok(atMs < Date.parse(LEGACY_BASE_BOUNDARY))
-  const tier = tierFor(FLASH, atMs, peak())
-  assert.deepEqual({ cacheHit: tier.cacheHit, cacheMiss: tier.cacheMiss, output: tier.output }, FLASH.legacyBase)
+test('tierFor: 峰谷生效前仍按峰段/谷段档位(无历史旧价回算)', () => {
+  const atMs = Date.parse('2026-08-01T12:00:00Z') // 早于默认生效时间,但晚于两档方案起点
+  const off = tierFor(FLASH, atMs, peak())
+  assert.deepEqual({ cacheHit: off.cacheHit, cacheMiss: off.cacheMiss, output: off.output }, FLASH.offPeak)
+  const inPeak = tierFor(FLASH, Date.parse('2026-08-17T02:00:00Z'), peak())
+  assert.deepEqual({ cacheHit: inPeak.cacheHit, cacheMiss: inPeak.cacheMiss, output: inPeak.output }, FLASH.peak)
 })
 
 test('tierFor: 生效后峰段取 peak,谷段取 offPeak', () => {
@@ -94,8 +93,6 @@ test('parsePricingHtml: 官方页 fixture 解析出两模型与峰谷档', () =>
   assert.equal(flash.output, 0.66)
   assert.deepEqual(flash.peak, { cacheHit: 0.014, cacheMiss: 0.44, output: 1.32 })
   assert.deepEqual(flash.offPeak, { cacheHit: 0.007, cacheMiss: 0.22, output: 0.66 })
-  // legacyBase 附带(历史基础价)。
-  assert.deepEqual(flash.legacyBase, { cacheHit: 0.0028, cacheMiss: 0.14, output: 0.28 })
   assert.deepEqual(parsed.peakWindows, [{ start: 1, end: 4 }, { start: 6, end: 10 }])
   assert.equal(parsed.effectiveAt, null)
 })
@@ -118,7 +115,6 @@ test('默认 CNY 价表与官方中文页数字一致', () => {
   assert.ok(flash !== undefined && pro !== undefined)
   assert.deepEqual({ cacheHit: flash.cacheHit, cacheMiss: flash.cacheMiss, output: flash.output }, { cacheHit: 0.05, cacheMiss: 1.5, output: 4.5 })
   assert.deepEqual(flash.peak, { cacheHit: 0.1, cacheMiss: 3.0, output: 9.0 })
-  assert.deepEqual(flash.legacyBase, CNY_LEGACY_BASE_PRICES['deepseek-v4-flash'])
   assert.deepEqual({ cacheHit: pro.cacheHit, cacheMiss: pro.cacheMiss, output: pro.output }, { cacheHit: 0.15, cacheMiss: 4.5, output: 13.5 })
   assert.deepEqual(pro.peak, { cacheHit: 0.3, cacheMiss: 9.0, output: 27.0 })
   assert.deepEqual(DEFAULT_PRICE_TABLE_CNY.default, { cacheHit: 0.05, cacheMiss: 1.5, output: 4.5 })
@@ -164,5 +160,4 @@ test('parsePricingHtml(target=cny): 中文页解析出两模型与峰谷档', ()
   const flash = parsed.models['deepseek-v4-flash']
   assert.deepEqual(flash.offPeak, { cacheHit: 0.05, cacheMiss: 1.5, output: 4.5 })
   assert.deepEqual(flash.peak, { cacheHit: 0.1, cacheMiss: 3.0, output: 9.0 })
-  assert.deepEqual(flash.legacyBase, CNY_LEGACY_BASE_PRICES['deepseek-v4-flash'])
 })

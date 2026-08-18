@@ -2,7 +2,7 @@
 
 DeepSeek Harness 会话计费 + 通用提供方用量查询插件。
 
-- **会话费用角标**：包裹 `llm/stream` 捕获每次模型调用 usage，按官方价格（含峰谷计价与历史基础价）精确计费，在会话头部实时显示本会话费用与 token 明细；刷新/重载后依然准确（会话投影事件源回放）。
+- **会话费用角标**：包裹 `llm/stream` 捕获每次模型调用 usage，按官方价格（峰谷两档）精确计费，在会话头部实时显示本会话费用与 token 明细；刷新/重载后依然准确（会话投影事件源回放）。
 - **提供方用量面板**：按模型提供方配置用量查询（每个提供方一条配置），在模型切换器左侧的用量图标处点击查看**当前会话所用提供方**的额度。
 - **三种预设**：
   - **DeepSeek 官方**（内置）：复用 设置→模型 中配置的 API Key，直查官方 `GET /user/balance`（[文档](https://api-docs.deepseek.com/zh-cn/api/get-user-balance)，仅发往 `api.deepseek.com`，非官方端点拒绝）。**无需任何配置**——当前会话提供方为 `deepseek-official` 时自动显示余额；如想调整刷新间隔可在设置页添加同名 provider 覆盖。
@@ -40,11 +40,11 @@ dsh plugin --profile web add <本仓库路径>
   "peakWindows": [{ "start": 1, "end": 4 }, { "start": 6, "end": 10 }],
   "prices": {                  // 双币种独立价格表;生效币种按界面语言(zh→cny,其他→usd)
     "usd": {                   // 美元 / 1M tokens;cacheWrite 按命中价计
-      "models": { "deepseek-v4-flash": { "cacheHit": 0.007, "cacheMiss": 0.22, "output": 0.66, "offPeak": {}, "peak": {}, "legacyBase": {} }, "deepseek-v4-pro": {} },
+      "models": { "deepseek-v4-flash": { "cacheHit": 0.007, "cacheMiss": 0.22, "output": 0.66, "offPeak": {}, "peak": {} }, "deepseek-v4-pro": {} },
       "default": { "cacheHit": 0.007, "cacheMiss": 0.22, "output": 0.66 }
     },
     "cny": {                   // 人民币 / 1M tokens(中文界面按此计费与展示)
-      "models": { "deepseek-v4-flash": { "cacheHit": 0.05, "cacheMiss": 1.5, "output": 4.5, "offPeak": {}, "peak": {}, "legacyBase": {} }, "deepseek-v4-pro": {} },
+      "models": { "deepseek-v4-flash": { "cacheHit": 0.05, "cacheMiss": 1.5, "output": 4.5, "offPeak": {}, "peak": {} }, "deepseek-v4-pro": {} },
       "default": { "cacheHit": 0.05, "cacheMiss": 1.5, "output": 4.5 }
     }
   },
