@@ -4,6 +4,7 @@
  * 用法:
  *   npm run release -- <X.Y.Z>              # 正式发布(commit + tag vX.Y.Z + push)
  *   npm run release -- <X.Y.Z> --dry-run    # 预演:只打印计划,不改文件、不推送
+ *   npm run release -- <X.Y.Z> --no-push    # 只 commit + tag,不推送(由用户手动 git push)
  *
  * 约定:
  *   - 唯一版本源 = package.json 的 version;tag 恒为 vX.Y.Z。
@@ -83,6 +84,7 @@ const npm = (args, opts) => exec('npm', args, opts)
 function main() {
   const args = process.argv.slice(2)
   const dryRun = args.includes('--dry-run')
+  const noPush = args.includes('--no-push')
   const versionArg = args.find(a => !a.startsWith('--'))
   const target = parseVersion(versionArg ?? '')
   if (target === null) {
@@ -121,7 +123,7 @@ function main() {
       if (/dsh plugin --profile web add .*dsh-monitor\.git#/.test(line)) console.log(`    ${line.trim()}`)
     }
   }
-  console.log(`  提交:release: ${tag}  推送:origin ${DEFAULT_BRANCH} + tag ${tag}\n`)
+  console.log(`  提交:release: ${tag}  ${noPush ? '不推送(待你手动 git push)' : `推送:origin ${DEFAULT_BRANCH} + tag ${tag}`}\n`)
 
   if (dryRun) {
     console.log('[release] --dry-run 预演完成,未做任何修改。')
@@ -146,10 +148,15 @@ function main() {
   git(['add', 'package.json', 'package-lock.json', ...README_PATHS])
   git(['commit', '-m', `release: ${tag}`])
   git(['tag', tag])
-  git(['push', 'origin', DEFAULT_BRANCH])
-  git(['push', 'origin', tag])
-
-  console.log(`[release] 已发布 ${tag}(commit + tag + push 完成)。`)
+  if (noPush) {
+    console.log(`[release] 已发布 ${tag}(commit + tag 完成，未推送)。请自行推送:`)
+    console.log(`  git push origin ${DEFAULT_BRANCH}`)
+    console.log(`  git push origin ${tag}`)
+  } else {
+    git(['push', 'origin', DEFAULT_BRANCH])
+    git(['push', 'origin', tag])
+    console.log(`[release] 已发布 ${tag}(commit + tag + push 完成)。`)
+  }
   console.log(`用户安装命令:`)
   console.log(`  dsh plugin --profile web add https://github.com/Coco-king/dsh-monitor.git#${tag}`)
   console.log(`  dsh plugin --profile web add https://gitee.com/kkcoco/dsh-monitor.git#${tag}`)

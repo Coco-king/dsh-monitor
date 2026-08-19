@@ -14,12 +14,23 @@ DeepSeek Harness 会话计费 + 通用提供方用量查询插件。
 
 ## 安装
 
+从 **GitHub** 安装：
+
 ```sh
-dsh plugin --profile web add https://github.com/Coco-king/dsh-monitor.git#v0.1.2  # GitHub(默认)
-dsh plugin --profile web add https://gitee.com/kkcoco/dsh-monitor.git#v0.1.2      # Gitee(国内可用)
+dsh plugin --profile web add https://github.com/Coco-king/dsh-monitor.git#v0.1.2
 ```
 
+或从 **Gitee** 镜像（国内用户可用）安装：
+
+```sh
+dsh plugin --profile web add https://gitee.com/kkcoco/dsh-monitor.git#v0.1.2
+```
+
+> 将 `#v0.1.2` 换成当前发布版本的 tag 即可锁定版本（tag 列表见 [tags](https://github.com/Coco-king/dsh-monitor/tags)）。
+
 包声明了 `dsh.bundle.patch`，安装后自动加入 web profile 的 bundle 层栈；`dsh plugin --profile web remove dsh-monitor` 可卸载。重启 web 服务（或刷新页面 + HMR）后生效。
+
+> **首次启动可能较慢（一次性回填）**：插件首次运行会把历史会话日志折叠进本地 SQLite 账本，以便过往会话也能有用量/计费数据。控制台会显示进度条（或分步进度日志），期间页面可正常使用。回填完成后，后续每轮扫描都是增量续扫，毫秒级完成。
 
 > 开发迭代：改代码后重新 `dsh plugin --profile web add <本仓库路径>`；若在 DeepSeek Harness 仓库内跑 `pnpm run dev:web`，客户端改动可经 client HMR 热更新。
 

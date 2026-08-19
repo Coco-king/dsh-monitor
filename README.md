@@ -14,12 +14,23 @@ Session billing and per-provider usage quota plugin for DeepSeek Harness.
 
 ## Install
 
+Install from **GitHub**:
+
 ```sh
-dsh plugin --profile web add https://github.com/Coco-king/dsh-monitor.git#v0.1.2  # GitHub
-dsh plugin --profile web add https://gitee.com/kkcoco/dsh-monitor.git#v0.1.2      # Gitee (users in mainland China)
+dsh plugin --profile web add https://github.com/Coco-king/dsh-monitor.git#v0.1.2
 ```
 
+Or from the **Gitee** mirror (for users in mainland China):
+
+```sh
+dsh plugin --profile web add https://gitee.com/kkcoco/dsh-monitor.git#v0.1.2
+```
+
+> Replace `#v0.1.2` with the current release tag to pin a version (see [tags](https://github.com/Coco-king/dsh-monitor/tags)).
+
 The package declares `dsh.bundle.patch`, so it joins the web profile's bundle layer automatically; `dsh plugin --profile web remove dsh-monitor` uninstalls. Restart the web service (or refresh + HMR) to apply.
+
+> **First startup may take a few seconds — one-time backfill.** On first run the plugin folds your existing session history into a local SQLite ledger so past sessions get usage/billing data. A progress bar (or step-by-step logs) appears in the console while it runs, and the page stays usable meanwhile. After the backfill completes, every later sweep is an incremental diff that finishes in milliseconds.
 
 > Iterating: re-run `dsh plugin --profile web add <this repo path>` after changes; with `pnpm run dev:web` running in the DeepSeek Harness checkout, client changes hot-reload via client HMR.
 
