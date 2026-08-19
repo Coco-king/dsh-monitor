@@ -17,13 +17,13 @@ DeepSeek Harness 会话计费 + 通用提供方用量查询插件。
 从 **GitHub** 安装：
 
 ```sh
-dsh plugin --profile web add https://github.com/Coco-king/dsh-monitor.git#v0.1.2
+dsh plugin --profile web add https://github.com/Coco-king/dsh-monitor.git#v0.2.0
 ```
 
 或从 **Gitee** 镜像（国内用户可用）安装：
 
 ```sh
-dsh plugin --profile web add https://gitee.com/kkcoco/dsh-monitor.git#v0.1.2
+dsh plugin --profile web add https://gitee.com/kkcoco/dsh-monitor.git#v0.2.0
 ```
 
 > 将 `#v0.1.2` 换成当前发布版本的 tag 即可锁定版本（tag 列表见 [tags](https://github.com/Coco-king/dsh-monitor/tags)）。

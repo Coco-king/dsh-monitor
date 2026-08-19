@@ -17,13 +17,13 @@ Session billing and per-provider usage quota plugin for DeepSeek Harness.
 Install from **GitHub**:
 
 ```sh
-dsh plugin --profile web add https://github.com/Coco-king/dsh-monitor.git#v0.1.2
+dsh plugin --profile web add https://github.com/Coco-king/dsh-monitor.git#v0.2.0
 ```
 
 Or from the **Gitee** mirror (for users in mainland China):
 
 ```sh
-dsh plugin --profile web add https://gitee.com/kkcoco/dsh-monitor.git#v0.1.2
+dsh plugin --profile web add https://gitee.com/kkcoco/dsh-monitor.git#v0.2.0
 ```
 
 > Replace `#v0.1.2` with the current release tag to pin a version (see [tags](https://github.com/Coco-king/dsh-monitor/tags)).
