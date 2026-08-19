@@ -376,3 +376,37 @@ test('applyConfigPatch: 双表各自校验,单侧非法整体拒绝', () => {
     prices: { usd: { models: {}, default: { cacheHit: 0.1, cacheMiss: 0.2, output: 0.3 } } },
   }).errors.length === 0)
 })
+
+test('Ledger.fold: 多会话并发折叠与串行结果一致(模拟 sweep 按批 Promise.all 交错)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-monitor-test-'))
+  const configPath = join(dir, 'ledger.json')
+  const dbPath = join(dir, 'ledger.sqlite')
+  const ledger = Ledger.openAt({ root: dir, configPath, dbPath })
+  try {
+    const sessions = ['s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8']
+    const eventsOf = id => {
+      const base = Number(id.slice(1))
+      return [
+        usageEvent(1, 1, 0, { inputTokens: 100 + base }, 'deepseek-official', 'deepseek-v4-flash', '2026-08-17T02:00:00Z'),
+        usageEvent(2, 2, 0, { outputTokens: 50 + base }, 'deepseek-official', 'deepseek-v4-flash', '2026-08-17T03:00:00Z'),
+      ]
+    }
+    const snapshot = () => ({
+      totals: ledger.usageSummary({}).totals,
+      rows: ledger.db.prepare('SELECT sessionId, COUNT(*) AS n FROM token_usage GROUP BY sessionId ORDER BY sessionId').all(),
+    })
+    // 串行基线。
+    for (const id of sessions) ledger.fold(id, eventsOf(id))
+    const serial = snapshot()
+    // 清空后并发折叠(交替让出事件循环,制造交错执行)。
+    ledger.resetUsage()
+    await Promise.all(sessions.map(async (id, i) => {
+      if (i % 2 === 0) await new Promise(resolve => setImmediate(resolve))
+      ledger.fold(id, eventsOf(id))
+    }))
+    assert.deepEqual(snapshot(), serial)
+  } finally {
+    ledger.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
