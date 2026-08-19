@@ -175,6 +175,25 @@ test('monitor 服务:opencode 预设归一化三档,null 窗口跳过', async ()
   }
 })
 
+test('monitor 服务:未绑定的 opencode 提供方自动识别为 Go 订阅(装插件前已配的也无需先保存)', async () => {
+  mockFetchJson(200, { usage: { rolling: { percent: 25, resetsAt: 'x' }, weekly: null, monthly: null } })
+  try {
+    const service = createService(makeCtx(), { config: configWithProviders({}), scheduleWrite: () => {} })
+    const usage = await service.getProviderUsage('opencodego')
+    assert.equal(usage.status, 'ok')
+    assert.equal(usage.preset, 'opencode')
+    assert.deepEqual(usage.items.map(it => it.key), ['rolling'])
+    // 大小写不敏感(OpenCodeGo / opencode-go 均命中)。
+    const capped = await service.getProviderUsage('OpenCodeGo')
+    assert.equal(capped.status, 'ok')
+    // 非 opencode 的未绑定 id 仍返回 off + 提示(不误伤)。
+    const miss = await service.getProviderUsage('nope')
+    assert.equal(miss.status, 'off')
+  } finally {
+    mock.restoreAll()
+  }
+})
+
 test('monitor 服务:custom 预设抓取条目', async () => {
   mockFetchJson(200, { usage: { weekly: { percent: 55 } } })
   try {
