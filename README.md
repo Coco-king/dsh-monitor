@@ -20,7 +20,7 @@ Install from **GitHub**:
 dsh plugin --profile web add https://github.com/Coco-king/dsh-monitor.git#v0.2.2
 ```
 
-Or from the **Gitee** mirror (for users in mainland China):
+Or from **Gitee** (for users in mainland China; code is pushed to Gitee and auto-mirrored to GitHub):
 
 ```sh
 dsh plugin --profile web add https://gitee.com/kkcoco/dsh-monitor.git#v0.2.2

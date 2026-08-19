@@ -10,6 +10,7 @@
  *   - 唯一版本源 = package.json 的 version;tag 恒为 vX.Y.Z。
  *   - README 安装命令(GitHub / Gitee 两行)里的版本号由本脚本强制重写,
  *     保证「README 展示的版本 = 最新发布 tag」。
+ *   - origin 恒为 Gitee 主仓,代码与 tag 均推送到 Gitee;GitHub 由 Gitee 自动镜像,无需手动推送。
  *   - 仅当用户明确要求升版本时才运行本脚本,AI 代理不得自行调用。
  *
  * 步骤:校验(分支 / 工作区 / 版本递增)→ npm test + build:client → 同步

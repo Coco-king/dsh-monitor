@@ -20,7 +20,7 @@ DeepSeek Harness 会话计费 + 通用提供方用量查询插件。
 dsh plugin --profile web add https://github.com/Coco-king/dsh-monitor.git#v0.2.2
 ```
 
-或从 **Gitee** 镜像（国内用户可用）安装：
+或从 **Gitee** 安装（国内用户可用；代码主推 Gitee，并由 Gitee 自动镜像同步到 GitHub）：
 
 ```sh
 dsh plugin --profile web add https://gitee.com/kkcoco/dsh-monitor.git#v0.2.2

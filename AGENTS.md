@@ -47,7 +47,7 @@
   2. 先跑 `npm test` 与 `npm run build:client`,全绿才继续。
   3. 同步版本号:`package.json` + `package-lock.json`(顶层与 `packages[""]`)。
   4. 重写 `README.md` / `README.zh-CN.md` 安装命令的钉定版本(GitHub 与 Gitee 两行,`#vX.Y.Z`,无号则插入)——保证「README 版本 = 最新 tag」。
-  5. 提交 `release: vX.Y.Z` → 打 tag `vX.Y.Z` → `git push origin master` 与 `git push origin vX.Y.Z`,并打印带版本号的安装命令。
+  5. 提交 `release: vX.Y.Z` → 打 tag `vX.Y.Z` → `git push origin master` 与 `git push origin vX.Y.Z`(origin 即 Gitee 主仓),并打印带版本号的安装命令。
 - 版本约定:唯一版本源 = `package.json` 的 `version`;tag 统一 `vX.Y.Z`;README 展示精确钉定版本,`#semver:^X.Y` 只作给用户的可选备注,不在 README 正文使用。
 - 发版前自查:tag 必须打在包含最新代码且 `npm test` 全绿的 commit 上;git 安装按 `package.json` 的 `files` 白名单打包,发布前确认 `files` 覆盖全部被 import 的 lib 文件(教训:曾漏 `lib/fold.js` 导致启动 `ERR_MODULE_NOT_FOUND`)。
-- Gitee 为手动镜像,脚本只负责 GitHub(origin);要同步 Gitee 的用户自行推 tag。
+- 仓库拓扑:主仓为 Gitee(`origin` = `https://gitee.com/kkcoco/dsh-monitor.git`),代码与 tag 均推送到 Gitee;GitHub(`Coco-king/dsh-monitor`)是 Gitee 的自动镜像,由 Gitee 端实时同步(分支 + tag),**无需也不应**手动推 GitHub。因此安装命令仍同时给出 GitHub / Gitee 两行(同源同 tag),但推送责任只在 Gitee 一侧。
