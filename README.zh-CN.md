@@ -57,7 +57,7 @@ dsh plugin --profile web add https://gitee.com/kkcoco/dsh-monitor.git#v0.2.2
 
    ![计费价格设置-中文](docs/screenshots/billing-prices-zh.png)
 
-5. **用量账本**:左侧导航 「用量账本」 入口,展示今日 / 本月 / 累计 token、提供方分布、项目分布、活跃度热力图、模型详单。
+5. **用量账本**:左侧导航 「用量账本」 入口,展示今日 / 本周 / 本月 / 累计 token、提供方分布、项目分布、活跃度热力图、模型详单。
 
    ![用量账本-中文](docs/screenshots/token-ledger-zh.png)
 

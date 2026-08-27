@@ -208,7 +208,7 @@ test('Ledger.usageSummary: byProvider 按 providerId 去重聚合(含 unknown)',
   assert.equal(rows.find(r => r.provider === 'unknown').input, 50)
 }))
 
-test('Ledger.usageSummary: windows 三窗 + 活跃度窗口与逐日模型拆分 + 诊断与时区', () => withTemp(({ ledger }) => {
+test('Ledger.usageSummary: windows 四窗 + 活跃度窗口与逐日模型拆分 + 诊断与时区', () => withTemp(({ ledger }) => {
   // 用「今天」事件:活跃度按 371 天窗口过滤,保证测试与真实日期无关。
   const today = new Date()
   const now = today.getTime()
@@ -222,17 +222,19 @@ test('Ledger.usageSummary: windows 三窗 + 活跃度窗口与逐日模型拆分
     data: { turn: 1, step: 0, usage: { inputTokens: 50 }, message: { source: { provider: 'opencode', model: 'gpt-5' } } },
   }])
   const summary = ledger.usageSummary({})
-  // 三窗:all 与 totals 同口径(全量);各窗字段类型齐全。
+  // 四窗:all 与 totals 同口径(全量);各窗字段类型齐全。
   assert.equal(summary.windows.all.input, summary.totals.input)
-  for (const key of ['today', 'month', 'all']) {
+  for (const key of ['today', 'week', 'month', 'all']) {
     assert.equal(typeof summary.windows[key].input, 'number')
     assert.equal(typeof summary.windows[key].calls, 'number')
   }
   // 带范围查询时,「累计」卡不被 range 过滤;totals(所选窗口)才被过滤。
+  // 本周(周一起)不含十天前的事件:week 与 today 同值,与真实日期无关。
   const filtered = ledger.usageSummary({ range: { start: localDayKey(now) } })
   assert.equal(filtered.totals.input, 100)
   assert.equal(filtered.windows.all.input, 150)
   assert.equal(filtered.windows.today.input, 100)
+  assert.equal(filtered.windows.week.input, 100)
   assert.equal(filtered.windows.month.input, 150)
   // 活跃度:含今天的按天行 + 逐日模型拆分。
   const key = localDayKey(now)

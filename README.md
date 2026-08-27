@@ -65,7 +65,7 @@ The package declares `dsh.bundle.patch`, so it joins the web profile's bundle la
 
    ![Billing prices-English](docs/screenshots/billing-prices-en.png)
 
-5. **Token ledger**: left-side entry `Token Ledger` — shows today / month / cumulative token counts, provider distribution, project distribution, activity heatmap, and per-model breakdown.
+5. **Token ledger**: left-side entry `Token Ledger` — shows today / week / month / cumulative token counts, provider distribution, project distribution, activity heatmap, and per-model breakdown.
 
    ![Token Ledger-English](docs/screenshots/token-ledger-en.png)
 
