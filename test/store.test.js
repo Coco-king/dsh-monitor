@@ -300,6 +300,30 @@ test('Ledger.openAt: 旧单表 prices 迁移为双表', () => {
   }
 })
 
+test('Ledger.openAt: 旧官方峰窗口(无 days)迁移为周一至五,自设窗口不动', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-monitor-test-'))
+  const configPath = join(dir, 'ledger.json')
+  const legacy = defaultConfig()
+  legacy.peakWindows = [{ start: 1, end: 4 }, { start: 6, end: 10 }]
+  legacy.prices.usd.models['deepseek-v4-flash'].windows = {
+    peak: [{ start: 1, end: 4 }, { start: 6, end: 10 }, { start: 12, end: 14 }],
+  }
+  writeFileSync(configPath, JSON.stringify({ version: 1, config: legacy }), 'utf8')
+  try {
+    const config = Ledger.readConfig(configPath)
+    assert.deepEqual(config.peakWindows, [
+      { start: 1, end: 4, days: [1, 2, 3, 4, 5] },
+      { start: 6, end: 10, days: [1, 2, 3, 4, 5] },
+    ])
+    const peak = config.prices.usd.models['deepseek-v4-flash'].windows.peak
+    assert.deepEqual(peak[0], { start: 1, end: 4, days: [1, 2, 3, 4, 5] })
+    assert.deepEqual(peak[1], { start: 6, end: 10, days: [1, 2, 3, 4, 5] })
+    assert.deepEqual(peak[2], { start: 12, end: 14 }) // 非官方形状的自设窗口原样保留
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('Ledger.resetUsage: 丢弃用量表,配置不受影响', () => withTemp(({ ledger }) => {
   ledger.fold('s1', [usageEvent(1, 1, 0, { inputTokens: 10 }, 'deepseek-official', 'deepseek-v4-flash', '2026-08-17T12:00:00Z')])
   assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM token_usage').get().n, 1)

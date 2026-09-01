@@ -88,7 +88,7 @@ Settings → Models
         │
         ▼
 Settings → Billing
-  ├─ deepseek-v4-flash / deepseek-v4-pro are bundled by default (both USD and CNY)
+  ├─ deepseek-v4-flash / deepseek-v4-pro / deepseek-v4-flash-vision-exp are bundled by default (both USD and CNY)
   └─ Edit manually / sync from official docs / add new models from Settings → Models
         │
         ▼
@@ -102,7 +102,7 @@ Notes:
 
 - **DeepSeek official is built-in — works without any binding.** Bindings are mainly for OpenCode, Custom, or overriding the DeepSeek refresh interval.
 - **Two independent price tables are persisted** (USD / CNY); the active currency is determined by the UI language (zh → CNY, otherwise → USD). Official sync updates both.
-- **Each model can declare its own peak/off-peak windows** in UTC. Models with their own windows use them; models with none fall back to the global official windows.
+- **Each model can declare its own peak/off-peak windows** in UTC, optionally restricted to days of week (`days`, Mon=1…Sun=7; omitted = every day). Models with their own windows use them; models with none fall back to the global official windows (since 2026-08-30: Beijing time Mon–Fri 9:00-12:00 & 14:00-18:00; weekends are off-peak all day).
 - **Where the config lives**: `$DSH_HOME/storages/dsh-monitor/ledger.json`, under the `config` key (see the next section).
 
 ## Config model

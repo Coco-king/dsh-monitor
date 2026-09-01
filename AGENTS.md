@@ -13,7 +13,8 @@
 - 账本**独立存 USD 与 CNY 两套价格表**(`config.prices.usd` / `config.prices.cny`),各自可分别编辑/同步。
 - 生效币种由界面语言决定:zh → `cny`,其余 → `usd`(`activeCurrency` / `priceTableFor`)。
 - 价格记录含三桶基础价 + `offPeak` + `peak`;**不含** legacyBase / legacy(已移除)。
-- 每模型可选 `windows: { peak: [], offPeak: [] }`(UTC 整点小时,可多组、可跨午夜);模型设了自己的窗口即按自己的窗口判定,完全没设才回退全局官方窗口。
+- 每模型可选 `windows: { peak: [], offPeak: [] }`(UTC 整点小时,可多组、可跨午夜;条目可带 `days`:UTC 周内日 1-7、周一=1,缺省 = 每天,跨午夜窗口的次日凌晨部分归属起点日);模型设了自己的窗口即按自己的窗口判定,完全没设才回退全局官方窗口。
+- 全局官方峰谷窗口(2026-08-30 起,与官方页一致):北京时间**周一至周五** 9:00-12:00、14:00-18:00(UTC 1-4、6-10 且 `days: [1-5]`),其余时段含周末全天空闲;官方同步(`parsePricingHtml`)会从英文页 "Monday through Friday" 字样探测该限定。旧配置迁移只给「与旧官方形状完全一致且无 days」的窗口补工作日,自设窗口不动(`store.js` 的 `migrateOfficialWeekdays`)。
 - 每模型可选布尔 `peakEnabled`(模型级「峰谷」开关,持久化):显式 `false` 时禁用峰谷、只用基础价;`undefined` 视为开启。客户端默认 deepseek 开头模型 `true`、其余 `false`。
 - 计费/同步逻辑集中在 `lib/pricing.js` 与 `lib/monitor.js`,客户端 `lib/client-src/format.js` 保持同口径。
 - 计费页易混淆点:主行三个输入框是「基础价」;「峰谷」开关控制并决定该模型空闲/高峰档的显示与计费(关闭只用基础价)。`tierFor` 与客户端 `format.js` 需同步维护。

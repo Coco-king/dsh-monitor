@@ -10,7 +10,7 @@ DeepSeek Harness 会话计费 + 通用提供方用量查询插件。
   - **DeepSeek 官方**（内置）：复用 设置→模型 中配置的 API Key，直查官方 `GET /user/balance`（[文档](https://api-docs.deepseek.com/zh-cn/api/get-user-balance)，仅发往 `api.deepseek.com`，非官方端点拒绝）。**无需任何配置**——当前会话提供方为 `deepseek-official` 时自动显示余额；如想调整刷新间隔可在设置页添加同名 provider 覆盖。
   - **OpenCode**：查询 OpenCode Go 套餐额度——**5小时 / 本周 / 本月** 用量百分比与重置时间（`opencode.ai/zen/go/v1/usage`）。
   - **自定义**：任意 HTTP 用量接口——URL + 请求头（支持 `{apiKey}` 占位）+ JSON 取值路径，逐条展示（percent / number / money / text，可带上限与重置时间）。
-- **官方价格同步**：一键从 DeepSeek 官方定价页同步价格表与峰谷窗口；默认预置 deepseek-v4-flash / deepseek-v4-pro。
+- **官方价格同步**：一键从 DeepSeek 官方定价页同步价格表与峰谷窗口；默认预置 deepseek-v4-flash / deepseek-v4-pro / deepseek-v4-flash-vision-exp。
 
 ## 安装
 
@@ -94,7 +94,7 @@ dsh plugin --profile web add https://gitee.com/kkcoco/dsh-monitor.git#v0.2.3
 
 - **DeepSeek 官方为内置,「不绑定也可用」**;绑定主要是为了 OpenCode / 自定义,或自定义 DeepSeek 刷新间隔。
 - **价格表分两套独立存**(USD / CNY),由界面语言决定生效币种(zh → CNY,其余 → USD);官方同步会同时更新两套。
-- **每个模型可独立设置峰谷窗口**;模型设了自己的窗口就按自己的判定,完全没设才回退到全局官方窗口。
+- **每个模型可独立设置峰谷窗口**（UTC 小时 + 可选适用日，周一=1…周日=7，缺省每天）；模型设了自己的窗口就按自己的判定，完全没设才回退到全局官方窗口（2026-08-30 起：北京时间周一至周五 9:00-12:00、14:00-18:00，周末全天空闲）。
 - **配置落地**:`$DSH_HOME/storages/dsh-monitor/ledger.json` 的 `config` 字段(详见下一节)。
 
 ## 配置模型

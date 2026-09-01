@@ -7,7 +7,7 @@ import {
   DEFAULT_PEAK_EFFECTIVE_AT,
   activeCurrency,
   costOf,
-  hourInWindows,
+  inWindows,
   isPeakHour,
   normalizePrice,
   normalizeWindows,
@@ -38,6 +38,13 @@ test('tierFor: 生效后峰段取 peak,谷段取 offPeak', () => {
   assert.deepEqual({ cacheHit: inPeak.cacheHit, cacheMiss: inPeak.cacheMiss, output: inPeak.output }, FLASH.peak)
   const offPeak = tierFor(FLASH, Date.parse('2026-08-17T12:00:00Z'), peak()) // UTC 12 → 窗外
   assert.deepEqual({ cacheHit: offPeak.cacheHit, cacheMiss: offPeak.cacheMiss, output: offPeak.output }, FLASH.offPeak)
+})
+
+test('tierFor: 周末(官方峰时段小时)按空闲档,周一同时刻按高峰档', () => {
+  const sunday = tierFor(FLASH, Date.parse('2026-08-02T02:00:00Z'), peak()) // 周日 UTC 02(窗口小时)
+  assert.deepEqual({ cacheHit: sunday.cacheHit, cacheMiss: sunday.cacheMiss, output: sunday.output }, FLASH.offPeak)
+  const monday = tierFor(FLASH, Date.parse('2026-08-03T02:00:00Z'), peak()) // 周一 UTC 02
+  assert.deepEqual({ cacheHit: monday.cacheHit, cacheMiss: monday.cacheMiss, output: monday.output }, FLASH.peak)
 })
 
 test('tierFor: 禁用峰谷时恒取基础档', () => {
@@ -98,6 +105,23 @@ test('normalizeWindows: 合法窗口保留,非法/空剔除,全空返回 undefin
   assert.equal(normalizeWindows(null), undefined)
 })
 
+test('normalizeWindows: days 去重排序,非法值剔除,空/全选省略', () => {
+  assert.deepEqual(normalizeWindows({ peak: [{ start: 2, end: 4, days: [5, 1, 1, 'x', 9] }] }), { peak: [{ start: 2, end: 4, days: [1, 5] }] })
+  assert.deepEqual(normalizeWindows({ peak: [{ start: 2, end: 4, days: [1, 2, 3, 4, 5, 6, 7] }] }), { peak: [{ start: 2, end: 4 }] })
+  assert.deepEqual(normalizeWindows({ peak: [{ start: 2, end: 4, days: [] }] }), { peak: [{ start: 2, end: 4 }] })
+})
+
+test('inWindows: days 周内日限定与跨午夜归属起点日', () => {
+  const wins = [{ start: 2, end: 4, days: [1] }] // 仅周一
+  assert.equal(inWindows(Date.parse('2026-08-03T02:00:00Z'), wins), true) // 周一
+  assert.equal(inWindows(Date.parse('2026-08-04T02:00:00Z'), wins), false) // 周二
+  assert.equal(inWindows(Date.parse('2026-08-03T02:00:00Z'), [{ start: 2, end: 4 }]), true) // 无 days = 每天
+  const wrap = [{ start: 22, end: 2, days: [1] }] // 周一 22:00 → 周二 02:00
+  assert.equal(inWindows(Date.parse('2026-08-03T23:00:00Z'), wrap), true) // 周一晚
+  assert.equal(inWindows(Date.parse('2026-08-04T01:00:00Z'), wrap), true) // 周二凌晨(归属周一)
+  assert.equal(inWindows(Date.parse('2026-08-05T01:00:00Z'), wrap), false) // 周三凌晨
+})
+
 test('normalizePrice: 保留规范窗口', () => {
   const e = normalizePrice({ cacheHit: 0.007, cacheMiss: 0.22, output: 0.66, windows: { peak: [{ start: 1, end: 4 }] } })
   assert.deepEqual(e.windows, { peak: [{ start: 1, end: 4 }] })
@@ -130,6 +154,7 @@ test('isPeakHour: 窗口边界半开', () => {
   assert.equal(isPeakHour(atMs('2026-08-17T06:00:00Z'), 0, DEFAULT_PEAK_WINDOWS), true)
   assert.equal(isPeakHour(atMs('2026-08-17T10:00:00Z'), 0, DEFAULT_PEAK_WINDOWS), false)
   assert.equal(isPeakHour(atMs('2026-08-17T02:00:00Z'), Date.now() + 1e12, DEFAULT_PEAK_WINDOWS), false) // 生效前
+  assert.equal(isPeakHour(atMs('2026-08-02T02:00:00Z'), 0, DEFAULT_PEAK_WINDOWS), false) // 周日:窗口小时也非高峰
 })
 
 test('costOf: 1M 输入 + 500K 输出 + 300K 缓存命中,基础档', () => {
@@ -161,10 +186,10 @@ const FIXTURE_HTML = `
   <tr><td>1M OUTPUT TOKENS</td><td>OFF-PEAK</td><td>$0.66</td><td>$1.98</td></tr>
   <tr><td>PEAK</td><td>$1.32</td><td>$3.96</td></tr>
 </table>
-<p>Peak hours are 01:00-04:00 and 06:00-10:00 UTC.</p>
+<p>Peak hours are 01:00 - 04:00 and 06:00 - 10:00 UTC, Monday through Friday (all other hours are off-peak).</p>
 `
 
-test('parsePricingHtml: 官方页 fixture 解析出两模型与峰谷档', () => {
+test('parsePricingHtml: 官方页 fixture 解析出两模型与峰谷档(含工作日限定)', () => {
   const parsed = parsePricingHtml(FIXTURE_HTML)
   assert.deepEqual(Object.keys(parsed.models).sort(), ['deepseek-v4-flash', 'deepseek-v4-pro'])
   const flash = parsed.models['deepseek-v4-flash']
@@ -172,18 +197,32 @@ test('parsePricingHtml: 官方页 fixture 解析出两模型与峰谷档', () =>
   assert.equal(flash.output, 0.66)
   assert.deepEqual(flash.peak, { cacheHit: 0.014, cacheMiss: 0.44, output: 1.32 })
   assert.deepEqual(flash.offPeak, { cacheHit: 0.007, cacheMiss: 0.22, output: 0.66 })
-  assert.deepEqual(parsed.peakWindows, [{ start: 1, end: 4 }, { start: 6, end: 10 }])
+  assert.deepEqual(parsed.peakWindows, [
+    { start: 1, end: 4, days: [1, 2, 3, 4, 5] },
+    { start: 6, end: 10, days: [1, 2, 3, 4, 5] },
+  ])
   assert.equal(parsed.effectiveAt, null)
+})
+
+test('parsePricingHtml: 峰时段句子无工作日字样时不补 days(旧页面兼容)', () => {
+  const legacy = FIXTURE_HTML.replace(
+    'UTC, Monday through Friday (all other hours are off-peak).',
+    'UTC.',
+  )
+  const parsed = parsePricingHtml(legacy)
+  assert.deepEqual(parsed.peakWindows, [{ start: 1, end: 4 }, { start: 6, end: 10 }])
 })
 
 test('parsePricingHtml: 不可解析页面抛 ERR_NO_MODELS', () => {
   assert.throws(() => parsePricingHtml('<html>nothing here</html>'), error => error.code === 'ERR_NO_MODELS')
 })
 
-test('默认价表包含 deepseek-v4-flash / deepseek-v4-pro', () => {
+test('默认价表包含 deepseek-v4-flash / deepseek-v4-pro / deepseek-v4-flash-vision-exp', () => {
   assert.ok(FLASH !== undefined)
   assert.ok(PRO !== undefined)
+  assert.ok(DEFAULT_PRICE_TABLE.models['deepseek-v4-flash-vision-exp'] !== undefined)
   assert.ok(DEFAULT_PRICE_TABLE.default !== undefined)
+  assert.ok(DEFAULT_PRICE_TABLE_CNY.models['deepseek-v4-flash-vision-exp'] !== undefined)
 })
 
 // ── 双币种:默认 CNY 表 / 选表 / 中文页解析 ────────────────────────────
