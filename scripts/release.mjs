@@ -65,11 +65,12 @@ function writeJson(path, value) {
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`)
 }
 
-function exec(cmd, args, { silent = false } = {}) {
+function exec(cmd, args, { silent = false, shell = false } = {}) {
   const result = spawnSync(cmd, args, {
     cwd: ROOT,
     encoding: 'utf8',
     stdio: silent ? ['ignore', 'pipe', 'pipe'] : 'inherit',
+    shell,
   })
   if (result.error !== undefined) throw result.error
   if (result.status !== 0) {
@@ -80,7 +81,13 @@ function exec(cmd, args, { silent = false } = {}) {
 }
 
 const git = (args, opts) => exec('git', args, opts)
-const npm = (args, opts) => exec('npm', args, opts)
+// Windows 下 npm 是 npm.cmd 批处理,spawnSync 直接 spawn 恒 ENOENT,须经 shell 转发;
+// 整条命令串成一个字符串以避开 DEP0190(shell + args 数组的弃用告警),参数均为
+// 无空格的固定词,拼接安全。git 是真正的 .exe 且 commit 消息含空格,保持精确传参。
+// 非 Windows(含 WSL)保持原调用形状:spawnSync('npm', args) 不加 shell,行为不变。
+const npm = (args, opts) => process.platform === 'win32'
+  ? exec(['npm', ...args].join(' '), [], { ...opts, shell: true })
+  : exec('npm', args, opts)
 
 function main() {
   const args = process.argv.slice(2)

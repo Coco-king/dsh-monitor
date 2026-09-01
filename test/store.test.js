@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Ledger, applyConfigPatch, defaultConfig, localDayKey, normalizeProject } from '../lib/store.js'
+import { Ledger, applyConfigPatch, defaultConfig, localDayKey, monthStartKey, normalizeProject } from '../lib/store.js'
 
 /** 临时账本目录(返回 { dir, ledger, configPath, dbPath })。 */
 function withTemp(fn) {
@@ -229,13 +229,15 @@ test('Ledger.usageSummary: windows 四窗 + 活跃度窗口与逐日模型拆分
     assert.equal(typeof summary.windows[key].calls, 'number')
   }
   // 带范围查询时,「累计」卡不被 range 过滤;totals(所选窗口)才被过滤。
-  // 本周(周一起)不含十天前的事件:week 与 today 同值,与真实日期无关。
+  // 本周(周一起)恒不含十天前的事件;月窗在每月 1-10 号时十天前落在上个月,
+  // 是否计入按真实日历计算,保证测试与真实日期无关。
+  const monthHasOldEvent = localDayKey(now - 10 * 86_400_000) >= monthStartKey()
   const filtered = ledger.usageSummary({ range: { start: localDayKey(now) } })
   assert.equal(filtered.totals.input, 100)
   assert.equal(filtered.windows.all.input, 150)
   assert.equal(filtered.windows.today.input, 100)
   assert.equal(filtered.windows.week.input, 100)
-  assert.equal(filtered.windows.month.input, 150)
+  assert.equal(filtered.windows.month.input, monthHasOldEvent ? 150 : 100)
   // 活跃度:含今天的按天行 + 逐日模型拆分。
   const key = localDayKey(now)
   assert.ok(Array.isArray(summary.activity))
