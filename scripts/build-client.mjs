@@ -51,7 +51,7 @@ function bundleOptions(plugins) {
 }
 
 /** 输出文本 → 注入 BUILD_TAG + 落盘 + 自检。 */
-function finalize(result) {
+async function finalize(result) {
   // Windows 上 esbuild 返回反斜杠绝对路径,统一成正斜杠再比。
   const file = result.outputFiles.find(f => f.path === OUT || f.path.replaceAll('\\', '/').endsWith('/' + OUT))
   if (file === undefined) throw new Error('build: no output file')
@@ -59,12 +59,12 @@ function finalize(result) {
   const tag = createHash('sha1').update(text).digest('hex').slice(0, 7)
   const out = text.replace(`"${TAG_SENTINEL}"`, JSON.stringify(tag))
   writeFileSync(OUT, out)
-  smokeCheck(out, tag)
+  await smokeCheck(out, tag)
   console.log(`[build-client] ${OUT} written (BUILD_TAG ${tag})`)
 }
 
-/** 冒烟:语法 + 无相对 require 残留 + module-loader 桩加载 + 导出形状。 */
-function smokeCheck(code, tag) {
+/** 冒烟:语法 + 无相对 require 残留 + module-loader 桩加载 + 导出形状 + 线路 codec 契约。 */
+async function smokeCheck(code, tag) {
   if (code.includes(tag) !== true) throw new Error('build: BUILD_TAG missing from output')
   if (/require\(["']\.\.?\//.test(code)) throw new Error('build: relative require left in bundle (esbuild 未内联)')
 
@@ -96,7 +96,35 @@ function smokeCheck(code, tag) {
   if (Array.isArray(moduleExports.inject) !== true || moduleExports.inject.join(',') !== 'remote') {
     throw new Error('build: exports.inject wrong')
   }
-  if (typeof moduleExports.apply !== 'function') throw new Error('build: exports.apply missing')
+  if (typeof moduleExports.apply !== 'function') {
+    throw new Error('build: exports.apply missing')
+  }
+  await checkCodecContract(moduleExports.apply)
+}
+
+/**
+ * 装载期自检:远端注入的 CONTRIBUTION 必须满足宿主 ≥0.1.7 的严格 codec 契约
+ * (mode:'strict' + create() 工厂),否则客户端 $mount 时契约对不上。
+ * 用桩 ctx 跑 apply,只为捕获传给 remote.$mount 的贡献清单。
+ */
+async function checkCodecContract(apply) {
+  let contribution = null
+  await apply({
+    remote: { $mount: value => { contribution = value; return async () => {} } },
+    effect: () => () => {},
+    get: () => undefined,
+  })
+  if (contribution === null || !Array.isArray(contribution.descriptors)) {
+    throw new Error('build: remote.$mount did not receive a contribution')
+  }
+  for (const descriptor of contribution.descriptors) {
+    const codecs = [descriptor.result, ...descriptor.parameters.map(parameter => parameter.codec)]
+    for (const codec of codecs) {
+      if (codec.mode !== 'strict' || typeof codec.create !== 'function') {
+        throw new Error(`build: ${descriptor.id} codec has no create() factory`)
+      }
+    }
+  }
 }
 
 const watch = process.argv.includes('--watch')
@@ -105,14 +133,14 @@ if (watch) {
   const ctx = await esbuild.context(bundleOptions([{
     name: 'dsh-monitor-finalize',
     setup(build) {
-      build.onEnd(result => {
+      build.onEnd(async result => {
         if (result.errors.length > 0) return
-        try { finalize(result) } catch (error) { console.error('[build-client]', error.message) }
+        try { await finalize(result) } catch (error) { console.error('[build-client]', error.message) }
       })
     },
   }]))
   await ctx.watch()
   console.log('[build-client] watching lib/client-src/ …')
 } else {
-  finalize(await esbuild.build(bundleOptions()))
+  await finalize(await esbuild.build(bundleOptions()))
 }
