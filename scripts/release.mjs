@@ -2,20 +2,23 @@
  * dsh-monitor 版本发布脚本:升版本 → 同步 README 安装版本号 → 打 tag → 推送。
  *
  * 用法:
- *   npm run release -- <X.Y.Z>              # 正式发布(commit + tag vX.Y.Z + push)
+ *   npm run release -- <X.Y.Z>              # 正式发布(commit + tag vX.Y.Z + push + npm publish)
  *   npm run release -- <X.Y.Z> --dry-run    # 预演:只打印计划,不改文件、不推送
  *   npm run release -- <X.Y.Z> --no-push    # 只 commit + tag,不推送(由用户手动 git push)
+ *   npm run release -- <X.Y.Z> --no-publish # 只做 git(commit + tag + push),不发布到 npm
  *
  * 约定:
  *   - 唯一版本源 = package.json 的 version;tag 恒为 vX.Y.Z。
  *   - README 安装命令(GitHub / Gitee 两行)里的版本号由本脚本强制重写,
  *     保证「README 展示的版本 = 最新发布 tag」。
  *   - origin 恒为 Gitee 主仓,代码与 tag 均推送到 Gitee;GitHub 由 Gitee 自动镜像,无需手动推送。
+ *   - npm 发布恒在 push 之后:npm 版本一经发布不可覆盖重发,必须让 git 侧先落定;
+ *     若发布失败,git 已完成,按提示手动重跑 npm publish 即可。
  *   - 仅当用户明确要求升版本时才运行本脚本,AI 代理不得自行调用。
  *
  * 步骤:校验(分支 / 工作区 / 版本递增)→ npm test + build:client → 同步
- * package.json / package-lock.json 版本 → 重写两份 README → commit → tag → push。
- * 任一步失败即中断,不产生半成品 commit/tag。
+ * package.json / package-lock.json 版本 → 重写两份 README → commit → tag → push
+ * → npm publish。任一步失败即中断,不产生半成品 commit/tag。
  */
 import { readFileSync, writeFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
@@ -93,13 +96,15 @@ function main() {
   const args = process.argv.slice(2)
   const dryRun = args.includes('--dry-run')
   const noPush = args.includes('--no-push')
+  const noPublish = args.includes('--no-publish')
   const versionArg = args.find(a => !a.startsWith('--'))
   const target = parseVersion(versionArg ?? '')
   if (target === null) {
     throw new Error('用法:npm run release -- <X.Y.Z> [--dry-run](如 0.1.1)')
   }
 
-  const currentVersion = readJson(PKG_PATH).version
+  const manifest = readJson(PKG_PATH)
+  const currentVersion = manifest.version
   const current = parseVersion(currentVersion)
   if (current === null) throw new Error(`package.json 版本非法:${currentVersion}`)
   if (!isNewerVersion(target, current)) {
@@ -131,14 +136,15 @@ function main() {
       if (/dsh plugin --profile web add .*dsh-monitor\.git#/.test(line)) console.log(`    ${line.trim()}`)
     }
   }
-  console.log(`  提交:release: ${tag}  ${noPush ? '不推送(待你手动 git push)' : `推送:origin ${DEFAULT_BRANCH} + tag ${tag}`}\n`)
+  console.log(`  提交:release: ${tag}  ${noPush ? '不推送(待你手动 git push)' : `推送:origin ${DEFAULT_BRANCH} + tag ${tag}`}`)
+  console.log(`  npm:${noPush ? ' 跳过(--no-push 不推送 git,npm 也不发布)' : noPublish ? ' 跳过(--no-publish)' : ` 发布 ${manifest.name}@${target.text}`}\n`)
 
   if (dryRun) {
     console.log('[release] --dry-run 预演完成,未做任何修改。')
     return
   }
 
-  // ── 真实流程:测试 → 构建 → 同步版本 → 重写 README → commit → tag → push ──
+  // ── 真实流程:测试 → 构建 → 同步版本 → 重写 README → commit → tag → push → npm publish ──
   npm(['test'])
   npm(['run', 'build:client'])
 
@@ -160,12 +166,29 @@ function main() {
     console.log(`[release] 已发布 ${tag}(commit + tag 完成，未推送)。请自行推送:`)
     console.log(`  git push origin ${DEFAULT_BRANCH}`)
     console.log(`  git push origin ${tag}`)
+    if (!noPublish) {
+      console.log('[release] 未推送 git 时不发布 npm(避免「npm 有版本、Gitee 无 tag」)；推送后请手动执行:npm publish')
+    }
   } else {
     git(['push', 'origin', DEFAULT_BRANCH])
     git(['push', 'origin', tag])
     console.log(`[release] 已发布 ${tag}(commit + tag + push 完成)。`)
+    if (noPublish) {
+      console.log('[release] 按 --no-publish 跳过 npm 发布；如需发布请执行:npm publish')
+    } else {
+      // npm 版本不可覆盖重发,故 git 侧先落定;此处失败不会回滚 tag,按提示手动重跑即可。
+      try {
+        npm(['publish'])
+        console.log(`[release] 已发布 npm 包 ${manifest.name}@${target.text}。`)
+      } catch (error) {
+        console.error(`[release] npm 发布失败:${error.message}`)
+        console.error(`[release] git 侧已完成(${tag} 已推送)。排除故障后手动重跑:npm publish`)
+        process.exitCode = 1
+      }
+    }
   }
   console.log(`用户安装命令:`)
+  console.log(`  dsh plugin --profile web add ${manifest.name}`)
   console.log(`  dsh plugin --profile web add https://github.com/Coco-king/dsh-monitor.git#${tag}`)
   console.log(`  dsh plugin --profile web add https://gitee.com/kkcoco/dsh-monitor.git#${tag}`)
 }

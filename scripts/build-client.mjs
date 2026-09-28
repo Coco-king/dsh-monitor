@@ -5,7 +5,7 @@
  *
  * 装载包装:esbuild 无法静态内联「函数形参名为 require 的内部调用」,因此
  * 本脚本用 banner/footer 把打包结果整体包进
- * `window.__ModuleLoader__.load({ id:'dsh-monitor', factory:(require)=>… })`;
+ * `window.__ModuleLoader__.load({ id:'@codecrab/dsh-monitor', factory:(require)=>… })`;
  * 产物中的外部 require(react 等)在运行时绑定到这个 factory 形参。
  *
  * 特性:
@@ -23,7 +23,7 @@ import esbuild from 'esbuild'
 
 const OUT = 'lib/client.js'
 const TAG_SENTINEL = '__DSH_TAG__'
-const ENTRY_ID = 'dsh-monitor'
+const ENTRY_ID = '@codecrab/dsh-monitor'
 
 /** 装载包装:banner 打开 load({factory:(require)=>…, footer 收尾并返回 module.exports。 */
 const LOAD_BANNER = `${'window.__ModuleLoader__.load({ id: '}${JSON.stringify(ENTRY_ID)}, factory: (require) => {\nvar module = { exports: {} };`
